@@ -79,6 +79,14 @@ func ClientBasicHandler(r *http.Request) (string, string, error) {
 	return username, password, nil
 }
 
+// ClientBasicOrFormHandler attempts Basic auth first, then falls back to form fields.
+func ClientBasicOrFormHandler(r *http.Request) (string, string, error) {
+	if id, sec, err := ClientBasicHandler(r); err == nil {
+		return id, sec, nil
+	}
+	return ClientFormHandler(r)
+}
+
 func RefreshTokenFormResolveHandler(r *http.Request) (string, error) {
 	rt := r.FormValue("refresh_token")
 	if rt == "" {
@@ -118,4 +126,9 @@ func AccessTokenCookieResolveHandler(r *http.Request) (string, bool) {
 	}
 
 	return c.Value, true
+}
+
+// FormValue returns trimmed form value.
+func FormValue(r *http.Request, key string) string {
+	return strings.TrimSpace(r.FormValue(key))
 }
