@@ -60,9 +60,10 @@ func main() {
 		}
 		globalToken = token
 
+		resp := tokenToJSON(token)
 		e := json.NewEncoder(w)
 		e.SetIndent("", "  ")
-		e.Encode(token)
+		_ = e.Encode(resp)
 	})
 
 	http.HandleFunc("/refresh", func(w http.ResponseWriter, r *http.Request) {
@@ -79,9 +80,10 @@ func main() {
 		}
 
 		globalToken = token
+		resp := tokenToJSON(token)
 		e := json.NewEncoder(w)
 		e.SetIndent("", "  ")
-		e.Encode(token)
+		_ = e.Encode(resp)
 	})
 
 	http.HandleFunc("/try", func(w http.ResponseWriter, r *http.Request) {
@@ -108,9 +110,10 @@ func main() {
 		}
 
 		globalToken = token
+		resp := tokenToJSON(token)
 		e := json.NewEncoder(w)
 		e.SetIndent("", "  ")
-		e.Encode(token)
+		_ = e.Encode(resp)
 	})
 
 	http.HandleFunc("/client", func(w http.ResponseWriter, r *http.Request) {
@@ -126,9 +129,10 @@ func main() {
 			return
 		}
 
+		resp := tokenToJSON(token)
 		e := json.NewEncoder(w)
 		e.SetIndent("", "  ")
-		e.Encode(token)
+		_ = e.Encode(resp)
 	})
 
 	log.Println("Client is running at 9094 port.Please open http://localhost:9094")
@@ -138,4 +142,24 @@ func main() {
 func genCodeChallengeS256(s string) string {
 	s256 := sha256.Sum256([]byte(s))
 	return base64.URLEncoding.EncodeToString(s256[:])
+}
+
+// tokenToJSON converts oauth2.Token to a server-like JSON without non-standard fields.
+func tokenToJSON(token *oauth2.Token) map[string]interface{} {
+	resp := map[string]interface{}{
+		"access_token": token.AccessToken,
+		"token_type":   token.TokenType,
+	}
+	if token.RefreshToken != "" {
+		resp["refresh_token"] = token.RefreshToken
+	}
+	if !token.Expiry.IsZero() {
+		// provide expires_in in seconds relative to now
+		sec := int64(time.Until(token.Expiry).Seconds())
+		if sec < 0 {
+			sec = 0
+		}
+		resp["expires_in"] = sec
+	}
+	return resp
 }
