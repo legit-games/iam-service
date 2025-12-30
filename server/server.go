@@ -584,3 +584,145 @@ func (s *Server) ValidationBearerToken(r *http.Request) (oauth2.TokenInfo, error
 
 	return s.Manager.LoadAccessToken(ctx, accessToken)
 }
+
+// HandleRevocationRequest implements RFC 7009 Token Revocation.
+// POST with form fields: token (required), token_type_hint (optional: access_token|refresh_token).
+// Successful revocation MUST return 200 OK with empty body.
+func (s *Server) HandleRevocationRequest(w http.ResponseWriter, r *http.Request) error {
+	if r.Method != http.MethodPost {
+		return s.tokenError(w, errors.ErrInvalidRequest)
+	}
+	// client authentication (Basic or form)
+	clientID, clientSecret, err := s.ClientInfoHandler(r)
+	if err != nil {
+		return s.tokenError(w, errors.ErrInvalidClient)
+	}
+	// verify client credentials
+	cli, err := s.Manager.GetClient(r.Context(), clientID)
+	if err != nil {
+		return s.tokenError(w, err)
+	}
+	if cliPass, ok := cli.(oauth2.ClientPasswordVerifier); ok {
+		if !cliPass.VerifyPassword(clientSecret) {
+			return s.tokenError(w, errors.ErrInvalidClient)
+		}
+	} else if len(cli.GetSecret()) > 0 && clientSecret != cli.GetSecret() {
+		return s.tokenError(w, errors.ErrInvalidClient)
+	}
+
+	token := FormValue(r, "token")
+	if token == "" {
+		return s.tokenError(w, errors.ErrInvalidRequest)
+	}
+	hint := FormValue(r, "token_type_hint")
+	ctx := r.Context()
+
+	// try revoke based on hint, then fallback
+	success := false
+	switch hint {
+	case "access_token":
+		if err := s.Manager.RemoveAccessToken(ctx, token); err == nil {
+			success = true
+		}
+	case "refresh_token":
+		if err := s.Manager.RemoveRefreshToken(ctx, token); err == nil {
+			success = true
+		}
+	}
+	if !success {
+		// try both
+		if err := s.Manager.RemoveAccessToken(ctx, token); err == nil {
+			success = true
+		} else if err := s.Manager.RemoveRefreshToken(ctx, token); err == nil {
+			success = true
+		}
+	}
+
+	// per RFC7009, always 200 OK even if the token was invalid/unknown
+	w.WriteHeader(http.StatusOK)
+	return nil
+}
+
+// HandleIntrospectionRequest implements RFC 7662 Token Introspection.
+// Requires client authentication. Returns token metadata JSON.
+func (s *Server) HandleIntrospectionRequest(w http.ResponseWriter, r *http.Request) error {
+	if r.Method != http.MethodPost {
+		return s.tokenError(w, errors.ErrInvalidRequest)
+	}
+	clientID, clientSecret, err := s.ClientInfoHandler(r)
+	if err != nil {
+		return s.tokenError(w, errors.ErrInvalidClient)
+	}
+	cli, err := s.Manager.GetClient(r.Context(), clientID)
+	if err != nil {
+		return s.tokenError(w, err)
+	}
+	if cliPass, ok := cli.(oauth2.ClientPasswordVerifier); ok {
+		if !cliPass.VerifyPassword(clientSecret) {
+			return s.tokenError(w, errors.ErrInvalidClient)
+		}
+	} else if len(cli.GetSecret()) > 0 && clientSecret != cli.GetSecret() {
+		return s.tokenError(w, errors.ErrInvalidClient)
+	}
+
+	token := FormValue(r, "token")
+	if token == "" {
+		return s.tokenError(w, errors.ErrInvalidRequest)
+	}
+	hint := FormValue(r, "token_type_hint")
+
+	ctx := r.Context()
+	var ti oauth2.TokenInfo
+	var loadErr error
+
+	switch hint {
+	case "access_token":
+		ti, loadErr = s.Manager.LoadAccessToken(ctx, token)
+	case "refresh_token":
+		ti, loadErr = s.Manager.LoadRefreshToken(ctx, token)
+	default:
+		// try access then refresh
+		ti, loadErr = s.Manager.LoadAccessToken(ctx, token)
+		if loadErr != nil {
+			ti, loadErr = s.Manager.LoadRefreshToken(ctx, token)
+		}
+	}
+
+	active := loadErr == nil && ti != nil
+	resp := map[string]interface{}{
+		"active": active,
+	}
+	if active {
+		// RFC7662 fields where available
+		resp["client_id"] = ti.GetClientID()
+		resp["username"] = ti.GetUserID()
+		resp["scope"] = ti.GetScope()
+		resp["token_type"] = s.Config.TokenType
+		resp["exp"] = ti.GetAccessCreateAt().Add(ti.GetAccessExpiresIn()).Unix()
+		resp["iat"] = ti.GetAccessCreateAt().Unix()
+		resp["nbf"] = ti.GetAccessCreateAt().Unix()
+		resp["sub"] = ti.GetUserID()
+		resp["aud"] = ti.GetClientID()
+		// iss, jti could be added when using JWT access tokens
+	}
+
+	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	return json.NewEncoder(w).Encode(resp)
+}
+
+// HandleClientRegistrationRequest implements a minimal RFC 7591 Dynamic Client Registration.
+// For now, this endpoint returns 501 Not Implemented due to client store abstraction limitations.
+func (s *Server) HandleClientRegistrationRequest(w http.ResponseWriter, r *http.Request) error {
+	if r.Method != http.MethodPost {
+		return s.tokenError(w, errors.ErrInvalidRequest)
+	}
+	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
+	w.WriteHeader(http.StatusNotImplemented)
+	return json.NewEncoder(w).Encode(map[string]interface{}{
+		"error":             "not_implemented",
+		"error_description": "dynamic client registration is not implemented in this build",
+	})
+}

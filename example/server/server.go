@@ -21,6 +21,9 @@ import (
 	"github.com/go-oauth2/oauth2/v4/server"
 	"github.com/go-oauth2/oauth2/v4/store"
 	"github.com/go-session/session/v3"
+
+	// migrations on start (optional)
+	"github.com/go-oauth2/oauth2/v4/migrate"
 )
 
 var (
@@ -44,6 +47,14 @@ func main() {
 	if dumpvar {
 		log.Println("Dumping requests")
 	}
+
+	// Optionally run DB migrations (like flyway) before server starts.
+	// Configure via environment variables (see migrate.RunFromEnv docs):
+	// MIGRATE_ON_START=1 MIGRATE_DRIVER=sqlite MIGRATE_DSN=./oauth2.db
+	if err := migrate.RunFromEnv(); err != nil {
+		log.Fatalf("migrations failed: %v", err)
+	}
+
 	manager := manage.NewDefaultManager()
 	manager.SetAuthorizeCodeTokenCfg(manage.DefaultAuthorizeCodeTokenCfg)
 
@@ -142,6 +153,37 @@ func main() {
 		e := json.NewEncoder(w)
 		e.SetIndent("", "  ")
 		e.Encode(data)
+	})
+
+	http.HandleFunc("/oauth/revoke", func(w http.ResponseWriter, r *http.Request) {
+		if dumpvar {
+			_ = dumpRequest(os.Stdout, "revoke", r)
+		}
+		// allow basic or form auth
+		srv.SetClientInfoHandler(server.ClientBasicOrFormHandler)
+		if err := srv.HandleRevocationRequest(w, r); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
+	})
+
+	http.HandleFunc("/oauth/introspect", func(w http.ResponseWriter, r *http.Request) {
+		if dumpvar {
+			_ = dumpRequest(os.Stdout, "introspect", r)
+		}
+		// allow basic or form auth
+		srv.SetClientInfoHandler(server.ClientBasicOrFormHandler)
+		if err := srv.HandleIntrospectionRequest(w, r); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
+	})
+
+	http.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
+		if dumpvar {
+			_ = dumpRequest(os.Stdout, "register", r)
+		}
+		if err := srv.HandleClientRegistrationRequest(w, r); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
 	})
 
 	log.Printf("Server is running at %d port.\n", portvar)
