@@ -2,14 +2,18 @@ package server_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/gavv/httpexpect"
 	"github.com/go-oauth2/oauth2/v4"
 	"github.com/go-oauth2/oauth2/v4/errors"
+	"github.com/go-oauth2/oauth2/v4/generates"
 	"github.com/go-oauth2/oauth2/v4/manage"
 	"github.com/go-oauth2/oauth2/v4/models"
 	"github.com/go-oauth2/oauth2/v4/server"
@@ -410,5 +414,57 @@ func validationAccessToken(t *testing.T, accessToken string) {
 	}
 	if ti.GetClientID() != clientID {
 		t.Error("invalid access token")
+	}
+}
+
+func TestTokenResponseContainsStandardFieldsOnly(t *testing.T) {
+	m := manage.NewDefaultManager()
+	m.SetAuthorizeCodeTokenCfg(manage.DefaultAuthorizeCodeTokenCfg)
+	m.MapAccessGenerate(generates.NewAccessGenerate())
+	m.MustTokenStorage(store.NewMemoryTokenStore())
+	cs := store.NewClientStore()
+	cs.Set("clientA", &models.Client{ID: "clientA", Secret: "secretA", Domain: "http://localhost"})
+	m.MapClientStorage(cs)
+	s := server.NewDefaultServer(m)
+	s.SetClientInfoHandler(server.ClientFormHandler)
+	// prepare a client_credentials grant request
+	r := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(url.Values{
+		"grant_type":    {"client_credentials"},
+		"client_id":     {"clientA"},
+		"client_secret": {"secretA"},
+	}.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	if err := s.HandleTokenRequest(w, r); err != nil {
+		t.Fatalf("HandleTokenRequest error: %v", err)
+	}
+	if w.Code != 200 {
+		t.Fatalf("unexpected status: %d", w.Code)
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// standard fields
+	for _, k := range []string{"access_token", "token_type", "expires_in"} {
+		if _, ok := resp[k]; !ok {
+			t.Fatalf("missing standard field %s in response: %v", k, resp)
+		}
+	}
+	// optional refresh_token may be absent; if present must be string
+	if v, ok := resp["refresh_token"]; ok {
+		if _, ok2 := v.(string); !ok2 {
+			t.Fatalf("refresh_token must be a string, got: %T", v)
+		}
+	}
+	// non-standard must be absent
+	if _, ok := resp["access_exp_at"]; ok {
+		t.Fatalf("unexpected non-standard field access_exp_at present: %v", resp)
+	}
+	if _, ok := resp["refresh_exp_at"]; ok {
+		t.Fatalf("unexpected non-standard field refresh_exp_at present: %v", resp)
+	}
+	if _, ok := resp["expiry"]; ok {
+		t.Fatalf("unexpected non-standard field expiry present: %v", resp)
 	}
 }
