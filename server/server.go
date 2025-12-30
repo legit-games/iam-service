@@ -819,6 +819,169 @@ func genRandomID(n int) string {
 
 // --- Swagger / OpenAPI support ---
 
+// path spec builders allow each endpoint to co-locate and maintain its API docs.
+func (s *Server) swaggerAuthorizePath() map[string]interface{} {
+	return map[string]interface{}{
+		"get": map[string]interface{}{
+			"summary": "Authorization Endpoint",
+			"parameters": []map[string]interface{}{
+				{"name": "response_type", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string", "enum": []string{"code", "token"}}},
+				{"name": "client_id", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string"}},
+				{"name": "redirect_uri", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string", "format": "uri"}},
+				{"name": "scope", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}},
+				{"name": "state", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}},
+				{"name": "code_challenge", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}},
+				{"name": "code_challenge_method", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string", "enum": []string{"plain", "S256"}}},
+			},
+			"responses": map[string]interface{}{"302": map[string]interface{}{"description": "Redirect with code or token"}},
+		},
+	}
+}
+
+func (s *Server) swaggerTokenPath() map[string]interface{} {
+	return map[string]interface{}{
+		"post": map[string]interface{}{
+			"summary": "Token Endpoint",
+			"requestBody": map[string]interface{}{
+				"required": true,
+				"content": map[string]interface{}{
+					"application/x-www-form-urlencoded": map[string]interface{}{
+						"schema": map[string]interface{}{"type": "object"},
+						"examples": map[string]interface{}{
+							"client_credentials": map[string]interface{}{"value": "grant_type=client_credentials&scope=read"},
+							"authorization_code": map[string]interface{}{"value": "grant_type=authorization_code&code=XXX&redirect_uri=..."},
+							"password":           map[string]interface{}{"value": "grant_type=password&username=foo&password=bar"},
+							"refresh_token":      map[string]interface{}{"value": "grant_type=refresh_token&refresh_token=XXX"},
+						},
+					},
+				},
+			},
+			"responses": map[string]interface{}{
+				"200": map[string]interface{}{
+					"description": "Token response",
+					"content": map[string]interface{}{
+						"application/json": map[string]interface{}{
+							"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+								"access_token":  map[string]interface{}{"type": "string"},
+								"token_type":    map[string]interface{}{"type": "string"},
+								"expires_in":    map[string]interface{}{"type": "integer"},
+								"refresh_token": map[string]interface{}{"type": "string"},
+								"scope":         map[string]interface{}{"type": "string"},
+							}},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func (s *Server) swaggerIntrospectPath() map[string]interface{} {
+	return map[string]interface{}{
+		"post": map[string]interface{}{
+			"summary":     "RFC 7662 Token Introspection",
+			"requestBody": map[string]interface{}{"required": true, "content": map[string]interface{}{"application/x-www-form-urlencoded": map[string]interface{}{"schema": map[string]interface{}{"type": "object"}}}},
+			"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Introspection result"}},
+			"security":    []map[string]interface{}{{"basicAuth": []string{}}},
+		},
+	}
+}
+
+func (s *Server) swaggerRevokePath() map[string]interface{} {
+	return map[string]interface{}{
+		"post": map[string]interface{}{
+			"summary":     "RFC 7009 Token Revocation",
+			"description": "Revokes an access or refresh token. The client must authenticate using Basic auth or form parameters. Per RFC 7009, successful revocation returns 200 even if the token is invalid or already revoked.",
+			"requestBody": map[string]interface{}{
+				"required": true,
+				"content": map[string]interface{}{
+					"application/x-www-form-urlencoded": map[string]interface{}{
+						"schema": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"token":           map[string]interface{}{"type": "string", "description": "The token to revoke (access token or refresh token)."},
+								"token_type_hint": map[string]interface{}{"type": "string", "description": "Optional hint of the token type: 'access_token' or 'refresh_token'."},
+								"client_id":       map[string]interface{}{"type": "string", "description": "Client ID (if not using Basic auth)."},
+								"client_secret":   map[string]interface{}{"type": "string", "description": "Client secret (if not using Basic auth)."},
+							},
+							"required": []string{"token"},
+						},
+						"examples": map[string]interface{}{
+							"access_token":     map[string]interface{}{"value": "token=eyJhbGciOi...&token_type_hint=access_token"},
+							"refresh_token":    map[string]interface{}{"value": "token=def502...&token_type_hint=refresh_token"},
+							"form_client_auth": map[string]interface{}{"value": "token=eyJ...&client_id=my-client&client_secret=s3cr3t"},
+						},
+					},
+				},
+			},
+			"responses": map[string]interface{}{
+				"200": map[string]interface{}{
+					"description": "Revocation acknowledged (token invalidated or was already invalid)",
+					"content":     map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object"}}},
+				},
+				"400": map[string]interface{}{
+					"description": "Invalid request (e.g., missing token)",
+					"content":     map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"error": map[string]interface{}{"type": "string"}, "error_description": map[string]interface{}{"type": "string"}}}}},
+				},
+				"401": map[string]interface{}{
+					"description": "Unauthorized client",
+					"content":     map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"error": map[string]interface{}{"type": "string"}, "error_description": map[string]interface{}{"type": "string"}}}}},
+				},
+			},
+			"security": []map[string]interface{}{{"basicAuth": []string{}}},
+		},
+	}
+}
+
+func (s *Server) swaggerRegisterPath() map[string]interface{} {
+	return map[string]interface{}{
+		"post": map[string]interface{}{
+			"summary":     "RFC 7591 Dynamic Client Registration",
+			"description": "Registers a new OAuth2 client. When REG_DB_DSN is configured, persists to PostgreSQL and returns 201.",
+			"requestBody": map[string]interface{}{
+				"required": true,
+				"content": map[string]interface{}{
+					"application/json": map[string]interface{}{
+						"schema": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"client_id":                  map[string]interface{}{"type": "string"},
+								"client_secret":              map[string]interface{}{"type": "string"},
+								"redirect_uris":              map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string", "format": "uri"}},
+								"client_name":                map[string]interface{}{"type": "string"},
+								"token_endpoint_auth_method": map[string]interface{}{"type": "string"},
+							},
+						},
+					},
+				},
+			},
+			"responses": map[string]interface{}{
+				"201": map[string]interface{}{
+					"description": "Client registered",
+					"content": map[string]interface{}{
+						"application/json": map[string]interface{}{
+							"schema": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"client_id":                  map[string]interface{}{"type": "string"},
+									"client_secret":              map[string]interface{}{"type": "string"},
+									"redirect_uris":              map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string", "format": "uri"}},
+									"client_name":                map[string]interface{}{"type": "string"},
+									"token_endpoint_auth_method": map[string]interface{}{"type": "string"},
+									"client_id_issued_at":        map[string]interface{}{"type": "integer", "format": "int64"},
+								},
+							},
+						},
+					},
+				},
+				"501": map[string]interface{}{
+					"description": "Not Implemented (REG_DB_DSN not set)",
+				},
+			},
+		},
+	}
+}
+
 // HandleSwaggerJSON serves an OpenAPI 3.0 spec that documents the available endpoints.
 func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error {
 	if r.Method != http.MethodGet {
@@ -832,127 +995,16 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 			"version":     "1.0.0",
 			"description": "OpenAPI for OAuth2 endpoints (RFC 6749, 6750, 7009, 7662, 7591).",
 		},
-		"servers": []map[string]interface{}{
-			{"url": "/"},
-		},
+		"servers": []map[string]interface{}{{"url": "/"}},
 		"paths": map[string]interface{}{
-			"/oauth/authorize": map[string]interface{}{
-				"get": map[string]interface{}{
-					"summary": "Authorization Endpoint",
-					"parameters": []map[string]interface{}{
-						{"name": "response_type", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string", "enum": []string{"code", "token"}}},
-						{"name": "client_id", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string"}},
-						{"name": "redirect_uri", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string", "format": "uri"}},
-						{"name": "scope", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}},
-						{"name": "state", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}},
-						{"name": "code_challenge", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}},
-						{"name": "code_challenge_method", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string", "enum": []string{"plain", "S256"}}},
-					},
-					"responses": map[string]interface{}{"302": map[string]interface{}{"description": "Redirect with code or token"}},
-				},
-			},
-			"/oauth/token": map[string]interface{}{
-				"post": map[string]interface{}{
-					"summary": "Token Endpoint",
-					"requestBody": map[string]interface{}{
-						"required": true,
-						"content": map[string]interface{}{
-							"application/x-www-form-urlencoded": map[string]interface{}{
-								"schema": map[string]interface{}{"type": "object"},
-								"examples": map[string]interface{}{
-									"client_credentials": map[string]interface{}{"value": "grant_type=client_credentials&scope=read"},
-									"authorization_code": map[string]interface{}{"value": "grant_type=authorization_code&code=XXX&redirect_uri=..."},
-									"password":           map[string]interface{}{"value": "grant_type=password&username=foo&password=bar"},
-									"refresh_token":      map[string]interface{}{"value": "grant_type=refresh_token&refresh_token=XXX"},
-								},
-							},
-						},
-					},
-					"responses": map[string]interface{}{
-						"200": map[string]interface{}{
-							"description": "Token response",
-							"content": map[string]interface{}{
-								"application/json": map[string]interface{}{
-									"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
-										"access_token":  map[string]interface{}{"type": "string"},
-										"token_type":    map[string]interface{}{"type": "string"},
-										"expires_in":    map[string]interface{}{"type": "integer"},
-										"refresh_token": map[string]interface{}{"type": "string"},
-										"scope":         map[string]interface{}{"type": "string"},
-									}},
-								},
-							},
-						},
-					},
-				},
-			},
-			"/oauth/introspect": map[string]interface{}{
-				"post": map[string]interface{}{
-					"summary":     "RFC 7662 Token Introspection",
-					"requestBody": map[string]interface{}{"required": true, "content": map[string]interface{}{"application/x-www-form-urlencoded": map[string]interface{}{"schema": map[string]interface{}{"type": "object"}}}},
-					"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Introspection result"}},
-					"security":    []map[string]interface{}{{"basicAuth": []string{}}},
-				},
-			},
-			"/oauth/revoke": map[string]interface{}{
-				"post": map[string]interface{}{
-					"summary":     "RFC 7009 Token Revocation",
-					"requestBody": map[string]interface{}{"required": true, "content": map[string]interface{}{"application/x-www-form-urlencoded": map[string]interface{}{"schema": map[string]interface{}{"type": "object"}}}},
-					"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Revocation acknowledged"}},
-					"security":    []map[string]interface{}{{"basicAuth": []string{}}},
-				},
-			},
-			"/register": map[string]interface{}{
-				"post": map[string]interface{}{
-					"summary":     "RFC 7591 Dynamic Client Registration",
-					"description": "Registers a new OAuth2 client. When REG_DB_DSN is configured, persists to PostgreSQL and returns 201.",
-					"requestBody": map[string]interface{}{
-						"required": true,
-						"content": map[string]interface{}{
-							"application/json": map[string]interface{}{
-								"schema": map[string]interface{}{
-									"type": "object",
-									"properties": map[string]interface{}{
-										"client_id":                  map[string]interface{}{"type": "string"},
-										"client_secret":              map[string]interface{}{"type": "string"},
-										"redirect_uris":              map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string", "format": "uri"}},
-										"client_name":                map[string]interface{}{"type": "string"},
-										"token_endpoint_auth_method": map[string]interface{}{"type": "string"},
-									},
-								},
-							},
-						},
-					},
-					"responses": map[string]interface{}{
-						"201": map[string]interface{}{
-							"description": "Client registered",
-							"content": map[string]interface{}{
-								"application/json": map[string]interface{}{
-									"schema": map[string]interface{}{
-										"type": "object",
-										"properties": map[string]interface{}{
-											"client_id":                  map[string]interface{}{"type": "string"},
-											"client_secret":              map[string]interface{}{"type": "string"},
-											"redirect_uris":              map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string", "format": "uri"}},
-											"client_name":                map[string]interface{}{"type": "string"},
-											"token_endpoint_auth_method": map[string]interface{}{"type": "string"},
-											"client_id_issued_at":        map[string]interface{}{"type": "integer", "format": "int64"},
-										},
-									},
-								},
-							},
-						},
-						"501": map[string]interface{}{
-							"description": "Not Implemented (REG_DB_DSN not set)",
-						},
-					},
-				},
-			},
+			"/oauth/authorize":  s.swaggerAuthorizePath(),
+			"/oauth/token":      s.swaggerTokenPath(),
+			"/oauth/introspect": s.swaggerIntrospectPath(),
+			"/oauth/revoke":     s.swaggerRevokePath(),
+			"/register":         s.swaggerRegisterPath(),
 		},
 		"components": map[string]interface{}{
-			"securitySchemes": map[string]interface{}{
-				"basicAuth": map[string]interface{}{"type": "http", "scheme": "basic"},
-			},
+			"securitySchemes": map[string]interface{}{"basicAuth": map[string]interface{}{"type": "http", "scheme": "basic"}},
 		},
 	}
 	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
