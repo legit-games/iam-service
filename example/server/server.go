@@ -9,9 +9,10 @@ import (
 	"log"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 	"os"
 	"time"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/go-oauth2/oauth2/v4/generates"
 
@@ -106,110 +107,40 @@ func main() {
 		log.Println("Response Error:", re.Error.Error())
 	})
 
-	// Existing OAuth endpoints
-	http.HandleFunc("/login", loginHandler)
-	http.HandleFunc("/auth", authHandler)
+	// Allow basic or form auth globally for revoke/introspect endpoints
+	srv.SetClientInfoHandler(server.ClientBasicOrFormHandler)
 
-	http.HandleFunc("/oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
+	// Build Gin engine and replace net/http mux completely
+	engine := server.NewGinEngine(srv)
+
+	// Existing custom endpoints using net/http handlers can be wrapped for Gin
+	engine.GET("/login", func(c *gin.Context) { loginHandler(c.Writer, c.Request) })
+	engine.POST("/login", func(c *gin.Context) { loginHandler(c.Writer, c.Request) })
+	engine.GET("/auth", func(c *gin.Context) { authHandler(c.Writer, c.Request) })
+	engine.GET("/test", func(c *gin.Context) {
+		// reuse logic with net/http signature
 		if dumpvar {
-			dumpRequest(os.Stdout, "authorize", r)
+			_ = dumpRequest(os.Stdout, "test", c.Request)
 		}
-
-		store, err := session.Start(r.Context(), w, r)
+		token, err := srv.ValidationBearerToken(c.Request)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(c.Writer, err.Error(), http.StatusBadRequest)
 			return
 		}
-
-		var form url.Values
-		if v, ok := store.Get("ReturnUri"); ok {
-			form = v.(url.Values)
-		}
-		r.Form = form
-
-		store.Delete("ReturnUri")
-		store.Save()
-
-		err = srv.HandleAuthorizeRequest(w, r)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-		}
-	})
-
-	http.HandleFunc("/oauth/token", func(w http.ResponseWriter, r *http.Request) {
-		if dumpvar {
-			_ = dumpRequest(os.Stdout, "token", r) // Ignore the error
-		}
-
-		err := srv.HandleTokenRequest(w, r)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	})
-
-	http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
-		if dumpvar {
-			_ = dumpRequest(os.Stdout, "test", r) // Ignore the error
-		}
-		token, err := srv.ValidationBearerToken(r)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
 		data := map[string]interface{}{
 			"expires_in": int64(token.GetAccessCreateAt().Add(token.GetAccessExpiresIn()).Sub(time.Now()).Seconds()),
 			"client_id":  token.GetClientID(),
 			"user_id":    token.GetUserID(),
 		}
-		e := json.NewEncoder(w)
+		e := json.NewEncoder(c.Writer)
 		e.SetIndent("", "  ")
-		e.Encode(data)
+		_ = e.Encode(data)
 	})
 
-	http.HandleFunc("/oauth/revoke", func(w http.ResponseWriter, r *http.Request) {
-		if dumpvar {
-			_ = dumpRequest(os.Stdout, "revoke", r)
-		}
-		// allow basic or form auth
-		srv.SetClientInfoHandler(server.ClientBasicOrFormHandler)
-		if err := srv.HandleRevocationRequest(w, r); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-		}
-	})
-
-	http.HandleFunc("/oauth/introspect", func(w http.ResponseWriter, r *http.Request) {
-		if dumpvar {
-			_ = dumpRequest(os.Stdout, "introspect", r)
-		}
-		// allow basic or form auth
-		srv.SetClientInfoHandler(server.ClientBasicOrFormHandler)
-		if err := srv.HandleIntrospectionRequest(w, r); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-		}
-	})
-
-	http.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
-		if dumpvar {
-			_ = dumpRequest(os.Stdout, "register", r)
-		}
-		if err := srv.HandleClientRegistrationRequest(w, r); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-		}
-	})
-
-	// Swagger/OpenAPI endpoints served by srv
-	http.HandleFunc("/swagger.json", func(w http.ResponseWriter, r *http.Request) {
-		_ = srv.HandleSwaggerJSON(w, r)
-	})
-	http.HandleFunc("/swagger", func(w http.ResponseWriter, r *http.Request) {
-		_ = srv.HandleSwaggerUI(w, r)
-	})
-
-	log.Printf("Server is running at %d port.\n", portvar)
+	log.Printf("Server is running at %d port.", portvar)
 	log.Printf("Point your OAuth client Auth endpoint to %s:%d%s", "http://localhost", portvar, "/oauth/authorize")
 	log.Printf("Point your OAuth client Token endpoint to %s:%d%s", "http://localhost", portvar, "/oauth/token")
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", portvar), nil))
+	log.Fatal(engine.Run(fmt.Sprintf(":%d", portvar)))
 }
 
 func dumpRequest(writer io.Writer, header string, r *http.Request) error {
