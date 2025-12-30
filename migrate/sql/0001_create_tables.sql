@@ -1,15 +1,14 @@
 -- +goose Up
 -- SQL in this section is executed when the migration is applied.
 
--- Example schema for storing OAuth2 tokens and clients when using SQL. This repo
--- uses buntdb for tokens by default, so this is optional. Adapt as needed.
+-- PostgreSQL schema for storing OAuth2 tokens and clients.
 
 CREATE TABLE IF NOT EXISTS oauth2_clients (
     id TEXT PRIMARY KEY,
     secret TEXT NOT NULL,
     domain TEXT NOT NULL,
     user_id TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS oauth2_tokens (
@@ -39,4 +38,3 @@ CREATE INDEX IF NOT EXISTS idx_oauth2_tokens_code ON oauth2_tokens(code);
 
 DROP TABLE IF EXISTS oauth2_tokens;
 DROP TABLE IF EXISTS oauth2_clients;
-
