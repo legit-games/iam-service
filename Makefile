@@ -1,8 +1,9 @@
 # Simple Makefile to manage local PostgreSQL via Docker Compose
 
-.PHONY: db db-down db-ps db-logs db-restart db-wait env run dev swagger-open register
+.PHONY: db db-down db-ps db-logs db-restart db-wait env run dev swagger-open register valkey valkey-down valkey-ps valkey-logs dev-valkey build-server run-server build-client run-client examples
 
 REG_DB_DSN_DEFAULT=postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable
+VALKEY_ADDR_DEFAULT=127.0.0.1:6379
 
 # Start PostgreSQL service defined in docker-compose.yml
 db:
@@ -19,11 +20,41 @@ db-wait:
 # Run the example server with REG_DB_DSN (defaults to local compose DSN)
 run:
 	@echo "Starting example server..."
-	@REG_DB_DSN=$${REG_DB_DSN:-$(REG_DB_DSN_DEFAULT)} go run ./example/server
+	@REG_DB_DSN=$${REG_DB_DSN:-$(REG_DB_DSN_DEFAULT)} VALKEY_ADDR=$${VALKEY_ADDR:-$(VALKEY_ADDR_DEFAULT)} go run ./example/server
 
 # Convenience: bring DB up, wait, then run server with migrations enabled for Postgres
 dev: db db-wait
-	MIGRATE_ON_START=1 MIGRATE_DRIVER=postgres MIGRATE_DSN=$(REG_DB_DSN_DEFAULT) REG_DB_DSN=$(REG_DB_DSN_DEFAULT) $(MAKE) run
+	MIGRATE_ON_START=1 MIGRATE_DRIVER=postgres MIGRATE_DSN=$(REG_DB_DSN_DEFAULT) REG_DB_DSN=$(REG_DB_DSN_DEFAULT) VALKEY_ADDR=$(VALKEY_ADDR_DEFAULT) $(MAKE) run
+
+# Valkey controls
+valkey:
+	docker compose up -d valkey
+valkey-down:
+	docker compose down
+valkey-ps:
+	docker compose ps
+valkey-logs:
+	docker compose logs -f valkey
+
+# Bring up Valkey and run server wired to Valkey
+dev-valkey: valkey
+	VALKEY_ADDR=$(VALKEY_ADDR_DEFAULT) MIGRATE_ON_START=0 $(MAKE) run
+
+# Build and run example server (per README)
+build-server:
+	cd example/server && go build server.go
+run-server:
+	cd example/server && ./server
+
+# Build and run example client (per README)
+build-client:
+	cd example/client && go build client.go
+run-client:
+	cd example/client && ./client
+
+# Combined helper to build both
+examples: build-server build-client
+	@echo "Built example server and client. Use 'make run-server' and 'make run-client' to run."
 
 # Stop and remove PostgreSQL containers (keeps volume)
 db-down:
@@ -44,6 +75,7 @@ db-restart:
 # Print DSN to export for the server to use PostgreSQL-backed registration
 env:
 	@echo 'export REG_DB_DSN=postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable'
+	@echo 'export VALKEY_ADDR=127.0.0.1:6379'
 
 # Open Swagger UI in default browser (macOS)
 swagger-open:
@@ -55,3 +87,6 @@ register:
 	  -H 'Content-Type: application/json' \
 	  -d '{"redirect_uris":["http://localhost:9094/callback"],"client_name":"My App","token_endpoint_auth_method":"client_secret_basic"}' \
 	  http://localhost:9096/register
+
+build: build-server build-client
+	@echo "Built both server and client."

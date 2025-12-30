@@ -58,8 +58,19 @@ func main() {
 	manager := manage.NewDefaultManager()
 	manager.SetAuthorizeCodeTokenCfg(manage.DefaultAuthorizeCodeTokenCfg)
 
-	// token store
-	manager.MustTokenStorage(store.NewMemoryTokenStore())
+	// token store: prefer Valkey when VALKEY_ADDR provided; else memory
+	valkeyAddr := os.Getenv("VALKEY_ADDR")
+	if valkeyAddr == "" {
+		valkeyAddr = "127.0.0.1:6379"
+	}
+	// Try Valkey first, then fallback to memory
+	if _, err := store.NewValkeyTokenStore(valkeyAddr, "oauth2:"); err == nil {
+		manager.MustTokenStorage(store.NewValkeyTokenStore(valkeyAddr, "oauth2:"))
+		log.Printf("Using Valkey token store at %s", valkeyAddr)
+	} else {
+		log.Printf("Valkey not available (%v), falling back to memory store", err)
+		manager.MustTokenStorage(store.NewMemoryTokenStore())
+	}
 
 	// generate jwt access token
 	// manager.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("00000000"), jwt.SigningMethodHS512))

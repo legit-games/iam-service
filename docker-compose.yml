@@ -15,5 +15,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-
-
+  valkey:
+    image: valkey/valkey:latest
+    container_name: oauth2-valkey
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
