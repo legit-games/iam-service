@@ -95,6 +95,7 @@ func main() {
 		log.Println("Response Error:", re.Error.Error())
 	})
 
+	// Existing OAuth endpoints
 	http.HandleFunc("/login", loginHandler)
 	http.HandleFunc("/auth", authHandler)
 
@@ -184,6 +185,14 @@ func main() {
 		if err := srv.HandleClientRegistrationRequest(w, r); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		}
+	})
+
+	// Swagger/OpenAPI endpoints served by srv
+	http.HandleFunc("/swagger.json", func(w http.ResponseWriter, r *http.Request) {
+		_ = srv.HandleSwaggerJSON(w, r)
+	})
+	http.HandleFunc("/swagger", func(w http.ResponseWriter, r *http.Request) {
+		_ = srv.HandleSwaggerUI(w, r)
 	})
 
 	log.Printf("Server is running at %d port.\n", portvar)

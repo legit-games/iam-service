@@ -726,3 +726,149 @@ func (s *Server) HandleClientRegistrationRequest(w http.ResponseWriter, r *http.
 		"error_description": "dynamic client registration is not implemented in this build",
 	})
 }
+
+// --- Swagger / OpenAPI support ---
+
+// HandleSwaggerJSON serves an OpenAPI 3.0 spec that documents the available endpoints.
+func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return nil
+	}
+	spec := map[string]interface{}{
+		"openapi": "3.0.3",
+		"info": map[string]interface{}{
+			"title":       "OAuth2 Authorization Server",
+			"version":     "1.0.0",
+			"description": "OpenAPI for OAuth2 endpoints (RFC 6749, 6750, 7009, 7662).",
+		},
+		"servers": []map[string]interface{}{
+			{"url": "/"},
+		},
+		"paths": map[string]interface{}{
+			"/oauth/authorize": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Authorization Endpoint",
+					"parameters": []map[string]interface{}{
+						{"name": "response_type", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string", "enum": []string{"code", "token"}}},
+						{"name": "client_id", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "redirect_uri", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string", "format": "uri"}},
+						{"name": "scope", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "state", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "code_challenge", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "code_challenge_method", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string", "enum": []string{"plain", "S256"}}},
+					},
+					"responses": map[string]interface{}{"302": map[string]interface{}{"description": "Redirect with code or token"}},
+				},
+			},
+			"/oauth/token": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Token Endpoint",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/x-www-form-urlencoded": map[string]interface{}{
+								"schema": map[string]interface{}{"type": "object"},
+								"examples": map[string]interface{}{
+									"client_credentials": map[string]interface{}{"value": "grant_type=client_credentials&scope=read"},
+									"authorization_code": map[string]interface{}{"value": "grant_type=authorization_code&code=XXX&redirect_uri=..."},
+									"password":           map[string]interface{}{"value": "grant_type=password&username=foo&password=bar"},
+									"refresh_token":      map[string]interface{}{"value": "grant_type=refresh_token&refresh_token=XXX"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Token response",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+										"access_token":  map[string]interface{}{"type": "string"},
+										"token_type":    map[string]interface{}{"type": "string"},
+										"expires_in":    map[string]interface{}{"type": "integer"},
+										"refresh_token": map[string]interface{}{"type": "string"},
+										"scope":         map[string]interface{}{"type": "string"},
+									}},
+								},
+							},
+						},
+					},
+				},
+			},
+			"/oauth/introspect": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "RFC 7662 Token Introspection",
+					"requestBody": map[string]interface{}{"required": true, "content": map[string]interface{}{"application/x-www-form-urlencoded": map[string]interface{}{"schema": map[string]interface{}{"type": "object"}}}},
+					"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Introspection result"}},
+					"security":    []map[string]interface{}{{"basicAuth": []string{}}},
+				},
+			},
+			"/oauth/revoke": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "RFC 7009 Token Revocation",
+					"requestBody": map[string]interface{}{"required": true, "content": map[string]interface{}{"application/x-www-form-urlencoded": map[string]interface{}{"schema": map[string]interface{}{"type": "object"}}}},
+					"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Revocation acknowledged"}},
+					"security":    []map[string]interface{}{{"basicAuth": []string{}}},
+				},
+			},
+			"/register": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":   "RFC 7591 Dynamic Client Registration (placeholder)",
+					"responses": map[string]interface{}{"501": map[string]interface{}{"description": "Not Implemented"}},
+				},
+			},
+		},
+		"components": map[string]interface{}{
+			"securitySchemes": map[string]interface{}{
+				"basicAuth": map[string]interface{}{"type": "http", "scheme": "basic"},
+			},
+		},
+	}
+	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
+	w.WriteHeader(http.StatusOK)
+	return json.NewEncoder(w).Encode(spec)
+}
+
+// HandleSwaggerUI serves a minimal Swagger UI that points to /swagger.json
+func (s *Server) HandleSwaggerUI(w http.ResponseWriter, r *http.Request) error {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return nil
+	}
+	html := `<!doctype html><html><head><meta charset="utf-8"/><title>Swagger UI</title>
+	<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+	</head><body><div id="swagger-ui"></div>
+	<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+	<script>window.ui = SwaggerUIBundle({ url: '/swagger.json', dom_id: '#swagger-ui' });</script>
+	</body></html>`
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(html))
+	return nil
+}
+
+// RegisterDefaultRoutes wires standard endpoints and swagger into the provided mux.
+func (s *Server) RegisterDefaultRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
+		_ = s.HandleAuthorizeRequest(w, r)
+	})
+	mux.HandleFunc("/oauth/token", func(w http.ResponseWriter, r *http.Request) {
+		_ = s.HandleTokenRequest(w, r)
+	})
+	mux.HandleFunc("/oauth/introspect", func(w http.ResponseWriter, r *http.Request) {
+		_ = s.HandleIntrospectionRequest(w, r)
+	})
+	mux.HandleFunc("/oauth/revoke", func(w http.ResponseWriter, r *http.Request) {
+		_ = s.HandleRevocationRequest(w, r)
+	})
+	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
+		_ = s.HandleClientRegistrationRequest(w, r)
+	})
+	mux.HandleFunc("/swagger.json", func(w http.ResponseWriter, r *http.Request) {
+		_ = s.HandleSwaggerJSON(w, r)
+	})
+	mux.HandleFunc("/swagger", func(w http.ResponseWriter, r *http.Request) {
+		_ = s.HandleSwaggerUI(w, r)
+	})
+}
