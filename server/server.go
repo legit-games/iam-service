@@ -1029,28 +1029,3 @@ func (s *Server) HandleSwaggerUI(w http.ResponseWriter, r *http.Request) error {
 	_, _ = w.Write([]byte(html))
 	return nil
 }
-
-// RegisterDefaultRoutes wires standard endpoints and swagger into the provided mux.
-func (s *Server) RegisterDefaultRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
-		_ = s.HandleAuthorizeRequest(w, r)
-	})
-	mux.HandleFunc("/oauth/token", func(w http.ResponseWriter, r *http.Request) {
-		_ = s.HandleTokenRequest(w, r)
-	})
-	mux.HandleFunc("/oauth/introspect", func(w http.ResponseWriter, r *http.Request) {
-		_ = s.HandleIntrospectionRequest(w, r)
-	})
-	mux.HandleFunc("/oauth/revoke", func(w http.ResponseWriter, r *http.Request) {
-		_ = s.HandleRevocationRequest(w, r)
-	})
-	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
-		_ = s.HandleClientRegistrationRequest(w, r)
-	})
-	mux.HandleFunc("/swagger.json", func(w http.ResponseWriter, r *http.Request) {
-		_ = s.HandleSwaggerJSON(w, r)
-	})
-	mux.HandleFunc("/swagger", func(w http.ResponseWriter, r *http.Request) {
-		_ = s.HandleSwaggerUI(w, r)
-	})
-}
