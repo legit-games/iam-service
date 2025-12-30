@@ -7,7 +7,7 @@ VALKEY_ADDR_DEFAULT=127.0.0.1:6379
 
 # Start PostgreSQL service defined in docker-compose.yml
 db:
-	docker compose up -d postgres
+	docker compose up -d
 
 # Wait until PostgreSQL is ready (uses pg_isready inside container)
 db-wait:

@@ -15,6 +15,7 @@ import (
 	"database/sql"
 
 	_ "github.com/lib/pq"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/go-oauth2/oauth2/v4"
 	"github.com/go-oauth2/oauth2/v4/errors"
@@ -817,6 +818,183 @@ func genRandomID(n int) string {
 	return hex.EncodeToString(b)
 }
 
+// HandleAPILogin authenticates a user and issues access/refresh tokens via JSON API.
+// Request JSON: {"username":"...","password":"...","client_id":"...","client_secret":"...","scope":"..."}
+// Uses PostgreSQL users table (see migrate/sql/0002_create_users.sql). DSN via USER_DB_DSN or REG_DB_DSN.
+func (s *Server) HandleAPILogin(w http.ResponseWriter, r *http.Request) error {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return nil
+	}
+	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
+
+	var payload struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "invalid_request",
+			"error_description": "invalid JSON payload",
+		})
+	}
+	payload.Username = strings.TrimSpace(payload.Username)
+	payload.Password = strings.TrimSpace(payload.Password)
+	if payload.Username == "" || payload.Password == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "invalid_request",
+			"error_description": "username and password are required",
+		})
+	}
+
+	// Resolve client credentials via configured ClientInfoHandler (e.g., Basic auth)
+	clientID, clientSecret, err := s.ClientInfoHandler(r)
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "invalid_client",
+			"error_description": "client authentication required (use Basic auth)",
+		})
+	}
+
+	// Determine DB driver and DSN
+	driver := strings.TrimSpace(os.Getenv("USER_DB_DRIVER"))
+	if driver == "" {
+		driver = "postgres"
+	}
+	dsn := strings.TrimSpace(os.Getenv("USER_DB_DSN"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("REG_DB_DSN"))
+	}
+	if dsn == "" {
+		w.WriteHeader(http.StatusNotImplemented)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "not_implemented",
+			"error_description": "set USER_DB_DRIVER and USER_DB_DSN (or REG_DB_DSN) to enable DB-backed user login",
+		})
+	}
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "server_error",
+			"error_description": fmt.Sprintf("open db: %v", err),
+		})
+	}
+	defer func() { _ = db.Close() }()
+
+	var storedHash string
+	q := `SELECT password_hash FROM users WHERE username=$1`
+	if driver == "sqlite" {
+		q = `SELECT password_hash FROM users WHERE username=?`
+	}
+	if err := db.QueryRowContext(r.Context(), q, payload.Username).Scan(&storedHash); err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "access_denied",
+			"error_description": "invalid username or password",
+		})
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(payload.Password)); err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "access_denied",
+			"error_description": "invalid username or password",
+		})
+	}
+
+	// verify client
+	cli, err := s.Manager.GetClient(r.Context(), clientID)
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "invalid_client",
+			"error_description": fmt.Sprintf("client: %v", err),
+		})
+	}
+	if cliPass, ok := cli.(oauth2.ClientPasswordVerifier); ok {
+		if !cliPass.VerifyPassword(clientSecret) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":             "invalid_client",
+				"error_description": "client verification failed",
+			})
+		}
+	} else if len(cli.GetSecret()) > 0 && clientSecret != cli.GetSecret() {
+		w.WriteHeader(http.StatusUnauthorized)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "invalid_client",
+			"error_description": "client verification failed",
+		})
+	}
+
+	// Issue tokens via password grant (no scope from payload)
+	gt := oauth2.PasswordCredentials
+	tgr := &oauth2.TokenGenerateRequest{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		UserID:       payload.Username,
+		Request:      r,
+	}
+	ti, err := s.Manager.GenerateAccessToken(r.Context(), gt, tgr)
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "access_denied",
+			"error_description": err.Error(),
+		})
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	return json.NewEncoder(w).Encode(s.GetTokenData(ti))
+}
+
+func (s *Server) swaggerAPILoginPath() map[string]interface{} {
+	return map[string]interface{}{
+		"post": map[string]interface{}{
+			"summary":     "User login and token issuance",
+			"description": "Authenticates a user against the users table and issues access/refresh tokens. Client must authenticate using HTTP Basic.",
+			"requestBody": map[string]interface{}{
+				"required": true,
+				"content": map[string]interface{}{
+					"application/json": map[string]interface{}{
+						"schema": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"username": map[string]interface{}{"type": "string"},
+								"password": map[string]interface{}{"type": "string"},
+							},
+							"required": []string{"username", "password"},
+						},
+					},
+				},
+			},
+			"responses": map[string]interface{}{
+				"200": map[string]interface{}{
+					"description": "Token response",
+					"content": map[string]interface{}{
+						"application/json": map[string]interface{}{
+							"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+								"access_token":  map[string]interface{}{"type": "string"},
+								"token_type":    map[string]interface{}{"type": "string"},
+								"expires_in":    map[string]interface{}{"type": "integer"},
+								"refresh_token": map[string]interface{}{"type": "string"},
+								"scope":         map[string]interface{}{"type": "string"},
+							}},
+						},
+					},
+				},
+				"401": map[string]interface{}{"description": "Unauthorized"},
+				"400": map[string]interface{}{"description": "Invalid request"},
+			},
+			"security": []map[string]interface{}{{"basicAuth": []string{}}},
+		},
+	}
+}
+
 // --- Swagger / OpenAPI support ---
 
 // path spec builders allow each endpoint to co-locate and maintain its API docs.
@@ -1002,6 +1180,7 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 			"/oauth/introspect": s.swaggerIntrospectPath(),
 			"/oauth/revoke":     s.swaggerRevokePath(),
 			"/register":         s.swaggerRegisterPath(),
+			"/api/login":        s.swaggerAPILoginPath(),
 		},
 		"components": map[string]interface{}{
 			"securitySchemes": map[string]interface{}{"basicAuth": map[string]interface{}{"type": "http", "scheme": "basic"}},
