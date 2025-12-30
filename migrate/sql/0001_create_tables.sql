@@ -1,14 +1,14 @@
 -- +goose Up
 -- SQL in this section is executed when the migration is applied.
 
--- PostgreSQL schema for storing OAuth2 tokens and clients.
+-- Portable schema for storing OAuth2 tokens and clients (SQLite/Postgres).
 
 CREATE TABLE IF NOT EXISTS oauth2_clients (
     id TEXT PRIMARY KEY,
     secret TEXT NOT NULL,
     domain TEXT NOT NULL,
     user_id TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS oauth2_tokens (
@@ -25,10 +25,11 @@ CREATE TABLE IF NOT EXISTS oauth2_tokens (
     code TEXT,
     code_created_at TIMESTAMP,
     code_expires_in INTEGER,
-    payload TEXT,
-    FOREIGN KEY (client_id) REFERENCES oauth2_clients(id)
+    payload TEXT
 );
 
+-- Foreign key constraint (SQLite requires enabling PRAGMA foreign_keys; Postgres supports inline FK). Optional for portability.
+-- CREATE INDEXES
 CREATE INDEX IF NOT EXISTS idx_oauth2_tokens_access ON oauth2_tokens(access);
 CREATE INDEX IF NOT EXISTS idx_oauth2_tokens_refresh ON oauth2_tokens(refresh);
 CREATE INDEX IF NOT EXISTS idx_oauth2_tokens_code ON oauth2_tokens(code);

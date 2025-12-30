@@ -56,6 +56,10 @@ func NewGinEngine(s *Server) *gin.Engine {
 		wrapGinHandler(c, s.HandleSwaggerUI)
 	})
 
+	// JSON API login endpoint
+	r.POST("/api/login", func(c *gin.Context) { wrapGinHandler(c, s.HandleAPILogin) })
+	r.GET("/api/login", func(c *gin.Context) { wrapGinHandler(c, s.HandleAPILogin) })
+
 	return r
 }
 
