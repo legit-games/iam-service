@@ -13,8 +13,8 @@ import (
 // This is additive and does not affect the existing net/http mux-based wiring.
 func NewGinEngine(s *Server) *gin.Engine {
 	r := gin.New()
+	r.HandleMethodNotAllowed = true
 	r.Use(gin.Recovery())
-	// Ensure form bodies are parsed for handlers relying on r.FormValue
 	r.Use(parseFormMiddleware())
 
 	// /oauth/authorize with session form restore middleware
@@ -56,14 +56,15 @@ func NewGinEngine(s *Server) *gin.Engine {
 		wrapGinHandler(c, s.HandleSwaggerUI)
 	})
 
-	// Legacy JSON API routes (kept for compatibility)
-	r.POST("/api/login", func(c *gin.Context) { wrapGinHandler(c, s.HandleAPILogin) })
-	r.GET("/api/login", func(c *gin.Context) { wrapGinHandler(c, s.HandleAPILogin) })
+	// JSON API routes required by tests
+	r.POST("/api/login", func(c *gin.Context) {
+		wrapGinHandler(c, s.HandleAPILogin)
+	})
+	// Public user registration
+	r.POST("/iam/v1/public/users", func(c *gin.Context) {
+		wrapGinHandler(c, s.HandleAPIRegisterUser)
+	})
 
-	// Register user (public): POST /iam/v1/public/users
-	r.POST("/iam/v1/public/users", func(c *gin.Context) { wrapGinHandler(c, s.HandleAPIRegisterUser) })
-	// Login (public): POST /iam/v1/public/users/login
-	r.POST("/iam/v1/public/users/login", func(c *gin.Context) { wrapGinHandler(c, s.HandleAPILogin) })
 	return r
 }
 

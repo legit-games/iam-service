@@ -14,12 +14,11 @@ import (
 
 	"database/sql"
 
-	_ "github.com/lib/pq"
-	"golang.org/x/crypto/bcrypt"
-
 	"github.com/go-oauth2/oauth2/v4"
 	"github.com/go-oauth2/oauth2/v4/errors"
 	"github.com/go-oauth2/oauth2/v4/models"
+	_ "github.com/lib/pq"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // NewDefaultServer create a default authorization server
@@ -740,13 +739,12 @@ func (s *Server) HandleClientRegistrationRequest(w http.ResponseWriter, r *http.
 		})
 	}
 
-	// Parse JSON input (subset of RFC 7591). Accepts optional client_id, client_secret, redirect_uris.
+	// Parse JSON input (subset of RFC 7591). Accepts client_secret, redirect_uris, token_endpoint_auth_method, and name.
 	var payload struct {
-		ClientID                string   `json:"client_id"`
+		Name                    string   `json:"name"`
 		ClientSecret            string   `json:"client_secret"`
 		RedirectURIs            []string `json:"redirect_uris"`
 		TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
-		ClientName              string   `json:"client_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -755,15 +753,12 @@ func (s *Server) HandleClientRegistrationRequest(w http.ResponseWriter, r *http.
 			"error_description": "invalid JSON payload",
 		})
 	}
-
-	// Generate client_id/secret if not provided
-	if strings.TrimSpace(payload.ClientID) == "" {
-		payload.ClientID = genRandomID(24)
-	}
+	// Generate client_id from Snowflake mapped to hyphenless UUID
+	clientID := models.LegitID()
 	if strings.TrimSpace(payload.ClientSecret) == "" {
-		payload.ClientSecret = genRandomID(32)
+		payload.ClientSecret = genRandomHexText(32)
 	}
-	// Domain (redirect_uri) required for this implementation; use first redirect_uris entry
+	// Domain (redirect_uri) required; use first redirect_uris entry
 	domain := ""
 	if len(payload.RedirectURIs) > 0 {
 		domain = payload.RedirectURIs[0]
@@ -775,8 +770,7 @@ func (s *Server) HandleClientRegistrationRequest(w http.ResponseWriter, r *http.
 			"error_description": "redirect_uris is required",
 		})
 	}
-
-	// Insert into Postgres
+	// Insert into Postgres with name column
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -788,8 +782,8 @@ func (s *Server) HandleClientRegistrationRequest(w http.ResponseWriter, r *http.
 	defer func() { _ = db.Close() }()
 
 	_, err = db.Exec(
-		`INSERT INTO oauth2_clients (id, secret, domain, user_id, created_at) VALUES ($1, $2, $3, $4, NOW())`,
-		payload.ClientID, payload.ClientSecret, domain, "",
+		`INSERT INTO oauth2_clients (id, secret, domain, user_id, name, created_at) VALUES ($1, $2, $3, $4, $5, NOW())`,
+		clientID, payload.ClientSecret, domain, "", payload.Name,
 	)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -799,248 +793,16 @@ func (s *Server) HandleClientRegistrationRequest(w http.ResponseWriter, r *http.
 		})
 	}
 
-	// Success response (subset of RFC 7591)
 	resp := map[string]interface{}{
-		"client_id":                  payload.ClientID,
+		"client_id":                  clientID,
 		"client_secret":              payload.ClientSecret,
 		"redirect_uris":              payload.RedirectURIs,
-		"client_name":                payload.ClientName,
+		"client_name":                payload.Name,
 		"token_endpoint_auth_method": payload.TokenEndpointAuthMethod,
 		"client_id_issued_at":        time.Now().Unix(),
 	}
 	w.WriteHeader(http.StatusCreated)
 	return json.NewEncoder(w).Encode(resp)
-}
-
-// genRandomID generates a hex string of n bytes length.
-func genRandomID(n int) string {
-	b := make([]byte, n)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
-}
-
-// HandleAPILogin authenticates a user and issues access/refresh tokens via JSON API.
-// Request JSON: {"username":"...","password":"...","client_id":"...","client_secret":"...","scope":"..."}
-// Uses PostgreSQL users table (see migrate/sql/0002_create_users.sql). DSN via USER_DB_DSN or REG_DB_DSN.
-func (s *Server) HandleAPILogin(w http.ResponseWriter, r *http.Request) error {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return nil
-	}
-	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
-
-	var payload struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "invalid_request",
-			"error_description": "invalid JSON payload",
-		})
-	}
-	payload.Username = strings.TrimSpace(payload.Username)
-	payload.Password = strings.TrimSpace(payload.Password)
-	if payload.Username == "" || payload.Password == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "invalid_request",
-			"error_description": "username and password are required",
-		})
-	}
-
-	// Resolve client credentials via configured ClientInfoHandler (e.g., Basic auth)
-	clientID, clientSecret, err := s.ClientInfoHandler(r)
-	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "invalid_client",
-			"error_description": "client authentication required (use Basic auth)",
-		})
-	}
-
-	// Determine DB driver and DSN
-	driver := strings.TrimSpace(os.Getenv("USER_DB_DRIVER"))
-	if driver == "" {
-		driver = "postgres"
-	}
-	dsn := strings.TrimSpace(os.Getenv("USER_DB_DSN"))
-	if dsn == "" {
-		dsn = strings.TrimSpace(os.Getenv("REG_DB_DSN"))
-	}
-	if dsn == "" {
-		w.WriteHeader(http.StatusNotImplemented)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "not_implemented",
-			"error_description": "set USER_DB_DRIVER and USER_DB_DSN (or REG_DB_DSN) to enable DB-backed user login",
-		})
-	}
-	db, err := sql.Open(driver, dsn)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "server_error",
-			"error_description": fmt.Sprintf("open db: %v", err),
-		})
-	}
-	defer func() { _ = db.Close() }()
-
-	var storedHash string
-	q := `SELECT password_hash FROM users WHERE username=$1`
-	if driver == "sqlite" {
-		q = `SELECT password_hash FROM users WHERE username=?`
-	}
-	if err := db.QueryRowContext(r.Context(), q, payload.Username).Scan(&storedHash); err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "access_denied",
-			"error_description": "invalid username or password",
-		})
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(payload.Password)); err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "access_denied",
-			"error_description": "invalid username or password",
-		})
-	}
-
-	// verify client
-	cli, err := s.Manager.GetClient(r.Context(), clientID)
-	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "invalid_client",
-			"error_description": fmt.Sprintf("client: %v", err),
-		})
-	}
-	if cliPass, ok := cli.(oauth2.ClientPasswordVerifier); ok {
-		if !cliPass.VerifyPassword(clientSecret) {
-			w.WriteHeader(http.StatusUnauthorized)
-			return json.NewEncoder(w).Encode(map[string]interface{}{
-				"error":             "invalid_client",
-				"error_description": "client verification failed",
-			})
-		}
-	} else if len(cli.GetSecret()) > 0 && clientSecret != cli.GetSecret() {
-		w.WriteHeader(http.StatusUnauthorized)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "invalid_client",
-			"error_description": "client verification failed",
-		})
-	}
-
-	// Issue tokens via password grant (no scope from payload)
-	gt := oauth2.PasswordCredentials
-	tgr := &oauth2.TokenGenerateRequest{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-		UserID:       payload.Username,
-		Request:      r,
-	}
-	ti, err := s.Manager.GenerateAccessToken(r.Context(), gt, tgr)
-	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "access_denied",
-			"error_description": err.Error(),
-		})
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Pragma", "no-cache")
-	w.WriteHeader(http.StatusOK)
-	return json.NewEncoder(w).Encode(s.GetTokenData(ti))
-}
-
-// HandleAPIRegisterUser registers a new user with username/password.
-// Request JSON: {"username":"...","password":"..."}
-// Response: 201 with {"user_id": <bigint>}.
-func (s *Server) HandleAPIRegisterUser(w http.ResponseWriter, r *http.Request) error {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return nil
-	}
-	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
-
-	var payload struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "invalid_request",
-			"error_description": "invalid JSON payload",
-		})
-	}
-	payload.Username = strings.TrimSpace(payload.Username)
-	payload.Password = strings.TrimSpace(payload.Password)
-	if payload.Username == "" || payload.Password == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "invalid_request",
-			"error_description": "username and password are required",
-		})
-	}
-
-	driver := strings.TrimSpace(os.Getenv("USER_DB_DRIVER"))
-	if driver == "" {
-		driver = "postgres"
-	}
-	dsn := strings.TrimSpace(os.Getenv("USER_DB_DSN"))
-	if dsn == "" {
-		dsn = strings.TrimSpace(os.Getenv("MIGRATE_DSN"))
-	}
-	if dsn == "" {
-		w.WriteHeader(http.StatusNotImplemented)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "not_implemented",
-			"error_description": "set USER_DB_DRIVER and USER_DB_DSN (or MIGRATE_DSN) to enable user registration",
-		})
-	}
-	db, err := sql.Open(driver, dsn)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "server_error",
-			"error_description": fmt.Sprintf("open db: %v", err),
-		})
-	}
-	defer db.Close()
-
-	// ensure username is unique
-	var exists int
-	qExists := `SELECT 1 FROM users WHERE username=$1 LIMIT 1`
-	if driver == "sqlite" {
-		qExists = `SELECT 1 FROM users WHERE username=? LIMIT 1`
-	}
-	if err := db.QueryRowContext(r.Context(), qExists, payload.Username).Scan(&exists); err == nil {
-		w.WriteHeader(http.StatusConflict)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "conflict",
-			"error_description": "username already exists",
-		})
-	}
-
-	// generate snowflake id and bcrypt hash
-	sf := models.NewSnowflake(1)
-	userID := sf.Next()
-	hash, _ := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
-	qIns := `INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)`
-	args := []interface{}{userID, payload.Username, string(hash)}
-	if driver == "sqlite" {
-		qIns = `INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)`
-	}
-	if _, err := db.ExecContext(r.Context(), qIns, args...); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "server_error",
-			"error_description": fmt.Sprintf("insert user: %v", err),
-		})
-	}
-	w.WriteHeader(http.StatusCreated)
-	return json.NewEncoder(w).Encode(map[string]interface{}{"user_id": userID})
 }
 
 func (s *Server) swaggerAPILoginPath() map[string]interface{} {
@@ -1206,7 +968,7 @@ func (s *Server) swaggerRegisterPath() map[string]interface{} {
 	return map[string]interface{}{
 		"post": map[string]interface{}{
 			"summary":     "RFC 7591 Dynamic Client Registration",
-			"description": "Registers a new OAuth2 client. When REG_DB_DSN is configured, persists to PostgreSQL and returns 201.",
+			"description": "Registers a new OAuth2 client. Generates client_id as hyphenless UUID mapped from Snowflake.",
 			"requestBody": map[string]interface{}{
 				"required": true,
 				"content": map[string]interface{}{
@@ -1214,12 +976,12 @@ func (s *Server) swaggerRegisterPath() map[string]interface{} {
 						"schema": map[string]interface{}{
 							"type": "object",
 							"properties": map[string]interface{}{
-								"client_id":                  map[string]interface{}{"type": "string"},
 								"client_secret":              map[string]interface{}{"type": "string"},
 								"redirect_uris":              map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string", "format": "uri"}},
-								"client_name":                map[string]interface{}{"type": "string"},
+								"name":                       map[string]interface{}{"type": "string"},
 								"token_endpoint_auth_method": map[string]interface{}{"type": "string"},
 							},
+							"required": []string{"redirect_uris"},
 						},
 					},
 				},
@@ -1232,7 +994,7 @@ func (s *Server) swaggerRegisterPath() map[string]interface{} {
 							"schema": map[string]interface{}{
 								"type": "object",
 								"properties": map[string]interface{}{
-									"client_id":                  map[string]interface{}{"type": "string"},
+									"client_id":                  map[string]interface{}{"type": "string", "description": "Hyphenless UUID string"},
 									"client_secret":              map[string]interface{}{"type": "string"},
 									"redirect_uris":              map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string", "format": "uri"}},
 									"client_name":                map[string]interface{}{"type": "string"},
@@ -1243,9 +1005,7 @@ func (s *Server) swaggerRegisterPath() map[string]interface{} {
 						},
 					},
 				},
-				"501": map[string]interface{}{
-					"description": "Not Implemented (REG_DB_DSN not set)",
-				},
+				"501": map[string]interface{}{"description": "Not Implemented (REG_DB_DSN not set)"},
 			},
 		},
 	}
@@ -1269,7 +1029,7 @@ func (s *Server) swaggerRegisterUserPath() map[string]interface{} {
 				},
 			},
 			"responses": map[string]interface{}{
-				"201": map[string]interface{}{"description": "User created", "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"user_id": map[string]interface{}{"type": "integer", "format": "int64"}}}}}},
+				"201": map[string]interface{}{"description": "User created", "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"user_id": map[string]interface{}{"type": "string", "description": "Hyphenless UUID string"}}}}}},
 				"400": map[string]interface{}{"description": "Invalid request"},
 				"409": map[string]interface{}{"description": "Username conflict"},
 			},
@@ -1328,4 +1088,187 @@ func (s *Server) HandleSwaggerUI(w http.ResponseWriter, r *http.Request) error {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(html))
 	return nil
+}
+
+// genRandomHexText generates a hex string of n bytes length.
+func genRandomHexText(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// HandleAPILogin authenticates a user and issues access/refresh tokens via JSON API.
+func (s *Server) HandleAPILogin(w http.ResponseWriter, r *http.Request) error {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return nil
+	}
+	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
+
+	var payload struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "invalid_request",
+			"error_description": "invalid JSON payload",
+		})
+	}
+	if strings.TrimSpace(payload.Username) == "" || strings.TrimSpace(payload.Password) == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "invalid_request",
+			"error_description": "username and password are required",
+		})
+	}
+
+	// Require USER_DB_DSN explicitly for login tests
+	dsn := strings.TrimSpace(os.Getenv("USER_DB_DSN"))
+	if dsn == "" {
+		w.WriteHeader(http.StatusNotImplemented)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "not_implemented",
+			"error_description": "set USER_DB_DSN to enable login",
+		})
+	}
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "server_error",
+			"error_description": fmt.Sprintf("open db: %v", err),
+		})
+	}
+	defer db.Close()
+
+	// Load user by username
+	var (
+		uid  string
+		hash string
+	)
+	err = db.QueryRowContext(r.Context(), `SELECT id, password_hash FROM users WHERE username=$1`, payload.Username).Scan(&uid, &hash)
+	if err != nil {
+		// unknown user -> 401
+		w.WriteHeader(http.StatusUnauthorized)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "invalid_grant",
+			"error_description": "invalid username or password",
+		})
+	}
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(payload.Password)) != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "invalid_grant",
+			"error_description": "invalid username or password",
+		})
+	}
+
+	// Issue token using manager as password grant
+	clientID, clientSecret, _ := s.ClientInfoHandler(r)
+	tgr := &oauth2.TokenGenerateRequest{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		UserID:       uid,
+		Request:      r,
+	}
+	ti, genErr := s.Manager.GenerateAccessToken(r.Context(), oauth2.PasswordCredentials, tgr)
+	if genErr != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "server_error",
+			"error_description": fmt.Sprintf("token generation: %v", genErr),
+		})
+	}
+
+	return s.token(w, s.GetTokenData(ti), nil)
+}
+
+// HandleAPIRegisterUser registers a new user.
+func (s *Server) HandleAPIRegisterUser(w http.ResponseWriter, r *http.Request) error {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return nil
+	}
+	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
+
+	var payload struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "invalid_request",
+			"error_description": "invalid JSON payload",
+		})
+	}
+	payload.Username = strings.TrimSpace(payload.Username)
+	payload.Password = strings.TrimSpace(payload.Password)
+	if payload.Username == "" || payload.Password == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "invalid_request",
+			"error_description": "username and password are required",
+		})
+	}
+
+	driver := strings.TrimSpace(os.Getenv("USER_DB_DRIVER"))
+	if driver == "" {
+		driver = "postgres"
+	}
+	dsn := strings.TrimSpace(os.Getenv("USER_DB_DSN"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("MIGRATE_DSN"))
+	}
+	if dsn == "" {
+		w.WriteHeader(http.StatusNotImplemented)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "not_implemented",
+			"error_description": "set USER_DB_DRIVER and USER_DB_DSN (or MIGRATE_DSN) to enable user registration",
+		})
+	}
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "server_error",
+			"error_description": fmt.Sprintf("open db: %v", err),
+		})
+	}
+	defer db.Close()
+
+	// username unique check
+	var exists int
+	qExists := `SELECT 1 FROM users WHERE username=$1 LIMIT 1`
+	if driver == "sqlite" {
+		qExists = `SELECT 1 FROM users WHERE username=? LIMIT 1`
+	}
+	if err := db.QueryRowContext(r.Context(), qExists, payload.Username).Scan(&exists); err == nil {
+		w.WriteHeader(http.StatusConflict)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "conflict",
+			"error_description": "username already exists",
+		})
+	}
+
+	// generate legitId and hash password
+	userID := models.LegitID()
+	hash, _ := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
+	qIns := `INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)`
+	args := []interface{}{userID, payload.Username, string(hash)}
+	if driver == "sqlite" {
+		qIns = `INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)`
+	}
+	if _, err := db.ExecContext(r.Context(), qIns, args...); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "server_error",
+			"error_description": fmt.Sprintf("insert user: %v", err),
+		})
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	return json.NewEncoder(w).Encode(map[string]interface{}{"user_id": userID})
 }
