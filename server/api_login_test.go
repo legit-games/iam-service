@@ -35,7 +35,7 @@ func newTestEngine(t *testing.T) *gin.Engine {
 
 func TestAPILogin_MethodNotAllowed(t *testing.T) {
 	engine := newTestEngine(t)
-	req := httptest.NewRequest(http.MethodGet, "/api/login", nil)
+	req := httptest.NewRequest(http.MethodGet, "/iam/v1/public/login", nil)
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, req)
 	if w.Code != http.StatusMethodNotAllowed {
@@ -45,7 +45,7 @@ func TestAPILogin_MethodNotAllowed(t *testing.T) {
 
 func TestAPILogin_BadJSON(t *testing.T) {
 	engine := newTestEngine(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString("{"))
+	req := httptest.NewRequest(http.MethodPost, "/iam/v1/public/login", bytes.NewBufferString("{"))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, req)
@@ -57,7 +57,7 @@ func TestAPILogin_BadJSON(t *testing.T) {
 func TestAPILogin_MissingFields(t *testing.T) {
 	engine := newTestEngine(t)
 	body := []byte(`{"username":"","password":""}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/iam/v1/public/login", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, req)
@@ -87,7 +87,7 @@ func TestAPILogin_DSNNotSet(t *testing.T) {
 	}()
 
 	body := []byte(`{"username":"test","password":"test"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/iam/v1/public/login", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, req)
@@ -113,7 +113,7 @@ func TestAPILogin_Success(t *testing.T) {
 	}
 
 	body := []byte(fmt.Sprintf(`{"username":"%s","password":"p@ssw0rd"}`, uname))
-	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/iam/v1/public/login", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, req)
