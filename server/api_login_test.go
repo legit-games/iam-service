@@ -106,7 +106,7 @@ func TestAPILogin_Success(t *testing.T) {
 	// generate legit id (hyphenless UUID) and insert user with unique username
 	hash, _ := bcrypt.GenerateFromPassword([]byte("p@ssw0rd"), bcrypt.DefaultCost)
 	uid := models.LegitID()
-	uname := fmt.Sprintf("tester_%s", uid[len(uid)-6:])
+	uname := fmt.Sprintf("tester_%s", uid)
 	_, err = db.Exec(`INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)`, uid, uname, string(hash))
 	if err != nil {
 		t.Fatalf("insert user: %v", err)
