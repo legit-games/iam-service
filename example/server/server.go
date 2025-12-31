@@ -22,6 +22,7 @@ import (
 	"github.com/go-oauth2/oauth2/v4/server"
 	"github.com/go-oauth2/oauth2/v4/store"
 	"github.com/go-session/session/v3"
+	"github.com/golang-jwt/jwt/v5"
 
 	// migrations on start (optional)
 	"github.com/go-oauth2/oauth2/v4/migrate"
@@ -74,8 +75,9 @@ func main() {
 	}
 
 	// generate jwt access token
-	// manager.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("00000000"), jwt.SigningMethodHS512))
-	manager.MapAccessGenerate(generates.NewAccessGenerate())
+	manager.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("00000000"), jwt.SigningMethodHS512))
+	// If you prefer opaque tokens, switch back to generates.NewAccessGenerate()
+	// manager.MapAccessGenerate(generates.NewAccessGenerate())
 
 	clientStore := store.NewClientStore()
 	clientStore.Set(idvar, &models.Client{

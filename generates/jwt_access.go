@@ -15,6 +15,7 @@ import (
 // JWTAccessClaims jwt claims
 type JWTAccessClaims struct {
 	jwt.RegisteredClaims
+	ClientID string `json:"client_id,omitempty"`
 }
 
 // Valid claims verification
@@ -49,6 +50,7 @@ func (a *JWTAccessGenerate) Token(ctx context.Context, data *oauth2.GenerateBasi
 			Subject:   data.UserID,
 			ExpiresAt: jwt.NewNumericDate(data.TokenInfo.GetAccessCreateAt().Add(data.TokenInfo.GetAccessExpiresIn())),
 		},
+		ClientID: data.Client.GetID(),
 	}
 
 	token := jwt.NewWithClaims(a.SignedMethod, claims)
