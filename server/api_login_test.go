@@ -103,12 +103,11 @@ func TestAPILogin_Success(t *testing.T) {
 		t.Fatalf("open test db: %v", err)
 	}
 	defer db.Close()
-	// generate snowflake id and insert user with unique username
+	// generate legit id (hyphenless UUID) and insert user with unique username
 	hash, _ := bcrypt.GenerateFromPassword([]byte("p@ssw0rd"), bcrypt.DefaultCost)
-	sf := models.NewSnowflake(1)
-	id := sf.Next()
-	uname := fmt.Sprintf("tester_%d", id)
-	_, err = db.Exec(`INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)`, id, uname, string(hash))
+	uid := models.LegitID()
+	uname := fmt.Sprintf("tester_%s", uid[len(uid)-6:])
+	_, err = db.Exec(`INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)`, uid, uname, string(hash))
 	if err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
