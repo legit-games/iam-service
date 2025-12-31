@@ -1,33 +1,39 @@
-# Compiled Object files, Static and Dynamic libs (Shared Objects)
-*.o
-*.a
-*.so
-
-# Folders
-_obj
-_test
-
-# Architecture specific extensions/prefixes
-*.[568vq]
-[568vq].out
-
-*.cgo1.go
-*.cgo2.c
-_cgo_defun.c
-_cgo_gotypes.go
-_cgo_export.*
-
-_testmain.go
-
+# Go build artifacts
+bin/
 *.exe
+*.dll
+*.so
+*.dylib
 *.test
-*.prof
+*.out
 
-coverage.txt
+# Go module/vendor
+vendor/
 
-# OSX
-*.DS_Store
-*.db
+# IDE/editor
+.idea/
+.vscode/
 *.swp
-/example/client/client
-/example/server/server
+*.swo
+.DS_Store
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.*
+
+# Generated databases
+*.db
+
+# Example builds: ignore compiled binaries under example/
+example/server/server
+example/client/client
+# In case of alternative names, ignore any binaries in example subfolders
+example/**/server
+example/**/client
+
+# Coverage and test cache
+coverage/
+*.coverprofile
