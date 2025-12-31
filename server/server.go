@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-oauth2/oauth2/v4"
 	"github.com/go-oauth2/oauth2/v4/errors"
+	"github.com/go-oauth2/oauth2/v4/models"
 )
 
 // NewDefaultServer create a default authorization server
@@ -952,6 +953,96 @@ func (s *Server) HandleAPILogin(w http.ResponseWriter, r *http.Request) error {
 	return json.NewEncoder(w).Encode(s.GetTokenData(ti))
 }
 
+// HandleAPIRegisterUser registers a new user with username/password.
+// Request JSON: {"username":"...","password":"..."}
+// Response: 201 with {"user_id": <bigint>}.
+func (s *Server) HandleAPIRegisterUser(w http.ResponseWriter, r *http.Request) error {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return nil
+	}
+	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
+
+	var payload struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "invalid_request",
+			"error_description": "invalid JSON payload",
+		})
+	}
+	payload.Username = strings.TrimSpace(payload.Username)
+	payload.Password = strings.TrimSpace(payload.Password)
+	if payload.Username == "" || payload.Password == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "invalid_request",
+			"error_description": "username and password are required",
+		})
+	}
+
+	driver := strings.TrimSpace(os.Getenv("USER_DB_DRIVER"))
+	if driver == "" {
+		driver = "postgres"
+	}
+	dsn := strings.TrimSpace(os.Getenv("USER_DB_DSN"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("MIGRATE_DSN"))
+	}
+	if dsn == "" {
+		w.WriteHeader(http.StatusNotImplemented)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "not_implemented",
+			"error_description": "set USER_DB_DRIVER and USER_DB_DSN (or MIGRATE_DSN) to enable user registration",
+		})
+	}
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "server_error",
+			"error_description": fmt.Sprintf("open db: %v", err),
+		})
+	}
+	defer db.Close()
+
+	// ensure username is unique
+	var exists int
+	qExists := `SELECT 1 FROM users WHERE username=$1 LIMIT 1`
+	if driver == "sqlite" {
+		qExists = `SELECT 1 FROM users WHERE username=? LIMIT 1`
+	}
+	if err := db.QueryRowContext(r.Context(), qExists, payload.Username).Scan(&exists); err == nil {
+		w.WriteHeader(http.StatusConflict)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "conflict",
+			"error_description": "username already exists",
+		})
+	}
+
+	// generate snowflake id and bcrypt hash
+	sf := models.NewSnowflake(1)
+	userID := sf.Next()
+	hash, _ := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
+	qIns := `INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)`
+	args := []interface{}{userID, payload.Username, string(hash)}
+	if driver == "sqlite" {
+		qIns = `INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)`
+	}
+	if _, err := db.ExecContext(r.Context(), qIns, args...); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "server_error",
+			"error_description": fmt.Sprintf("insert user: %v", err),
+		})
+	}
+	w.WriteHeader(http.StatusCreated)
+	return json.NewEncoder(w).Encode(map[string]interface{}{"user_id": userID})
+}
+
 func (s *Server) swaggerAPILoginPath() map[string]interface{} {
 	return map[string]interface{}{
 		"post": map[string]interface{}{
@@ -1160,6 +1251,32 @@ func (s *Server) swaggerRegisterPath() map[string]interface{} {
 	}
 }
 
+func (s *Server) swaggerRegisterUserPath() map[string]interface{} {
+	return map[string]interface{}{
+		"post": map[string]interface{}{
+			"summary":     "User registration",
+			"description": "Registers a new user with username and password (bcrypt-hashed).",
+			"requestBody": map[string]interface{}{
+				"required": true,
+				"content": map[string]interface{}{
+					"application/json": map[string]interface{}{
+						"schema": map[string]interface{}{
+							"type":       "object",
+							"properties": map[string]interface{}{"username": map[string]interface{}{"type": "string"}, "password": map[string]interface{}{"type": "string"}},
+							"required":   []string{"username", "password"},
+						},
+					},
+				},
+			},
+			"responses": map[string]interface{}{
+				"201": map[string]interface{}{"description": "User created", "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"user_id": map[string]interface{}{"type": "integer", "format": "int64"}}}}}},
+				"400": map[string]interface{}{"description": "Invalid request"},
+				"409": map[string]interface{}{"description": "Username conflict"},
+			},
+		},
+	}
+}
+
 // HandleSwaggerJSON serves an OpenAPI 3.0 spec that documents the available endpoints.
 func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error {
 	if r.Method != http.MethodGet {
@@ -1175,12 +1292,16 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 		},
 		"servers": []map[string]interface{}{{"url": "/"}},
 		"paths": map[string]interface{}{
-			"/oauth/authorize":  s.swaggerAuthorizePath(),
-			"/oauth/token":      s.swaggerTokenPath(),
-			"/oauth/introspect": s.swaggerIntrospectPath(),
-			"/oauth/revoke":     s.swaggerRevokePath(),
-			"/register":         s.swaggerRegisterPath(),
-			"/api/login":        s.swaggerAPILoginPath(),
+			"/oauth/authorize":           s.swaggerAuthorizePath(),
+			"/oauth/token":               s.swaggerTokenPath(),
+			"/oauth/introspect":          s.swaggerIntrospectPath(),
+			"/oauth/revoke":              s.swaggerRevokePath(),
+			"/register":                  s.swaggerRegisterPath(),
+			"/api/login":                 s.swaggerAPILoginPath(),
+			"/api/register":              s.swaggerRegisterUserPath(),
+			"/iam/v1/public/users":       s.swaggerRegisterUserPath(),
+			"/iam/v1/public/users/login": s.swaggerAPILoginPath(),
+			"/iam/v1/admin/users":        s.swaggerRegisterUserPath(),
 		},
 		"components": map[string]interface{}{
 			"securitySchemes": map[string]interface{}{"basicAuth": map[string]interface{}{"type": "http", "scheme": "basic"}},
