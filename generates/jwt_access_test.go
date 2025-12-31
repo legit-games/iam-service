@@ -50,5 +50,6 @@ func TestJWTAccess(t *testing.T) {
 		So(len(aud), ShouldEqual, 1)
 		So(aud[0], ShouldEqual, "123456")
 		So(claims.Subject, ShouldEqual, "000000")
+		So(claims.ClientID, ShouldEqual, "123456")
 	})
 }
