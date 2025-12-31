@@ -44,7 +44,7 @@ func NewGinEngine(s *Server) *gin.Engine {
 	})
 
 	// Dynamic client registration
-	r.POST("/register", func(c *gin.Context) {
+	r.POST("/iam/v1/oauth/clients", func(c *gin.Context) {
 		wrapGinHandler(c, s.HandleClientRegistrationRequest)
 	})
 
