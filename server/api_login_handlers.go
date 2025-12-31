@@ -62,7 +62,7 @@ func (s *Server) HandleAPILogin(w http.ResponseWriter, r *http.Request) error {
 		uid  string
 		hash string
 	)
-	if err := db.QueryRowContext(r.Context(), `SELECT id, password_hash FROM users WHERE username=$1`, payload.Username).Scan(&uid, &hash); err != nil {
+	if err := db.QueryRowContext(r.Context(), `SELECT id, password_hash FROM accounts WHERE username=$1`, payload.Username).Scan(&uid, &hash); err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		return json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":             "invalid_grant",

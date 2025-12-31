@@ -111,5 +111,6 @@ register:
 build: build-server build-client
 	@echo "Built both server and client."
 
-test: db db-wait
+# Run full test suite ensuring DB is restarted fresh
+test: db-down db db-wait
 	go test ./...
