@@ -57,7 +57,7 @@ func NewGinEngine(s *Server) *gin.Engine {
 	})
 
 	// JSON API routes required by tests
-	r.POST("/api/login", func(c *gin.Context) {
+	r.POST("/iam/v1/public/login", func(c *gin.Context) {
 		wrapGinHandler(c, s.HandleAPILogin)
 	})
 	// Public user registration
