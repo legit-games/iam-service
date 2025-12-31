@@ -90,3 +90,6 @@ register:
 
 build: build-server build-client
 	@echo "Built both server and client."
+
+test: db db-wait
+	go test ./...

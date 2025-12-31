@@ -56,10 +56,14 @@ func NewGinEngine(s *Server) *gin.Engine {
 		wrapGinHandler(c, s.HandleSwaggerUI)
 	})
 
-	// JSON API login endpoint
+	// Legacy JSON API routes (kept for compatibility)
 	r.POST("/api/login", func(c *gin.Context) { wrapGinHandler(c, s.HandleAPILogin) })
 	r.GET("/api/login", func(c *gin.Context) { wrapGinHandler(c, s.HandleAPILogin) })
 
+	// Register user (public): POST /iam/v1/public/users
+	r.POST("/iam/v1/public/users", func(c *gin.Context) { wrapGinHandler(c, s.HandleAPIRegisterUser) })
+	// Login (public): POST /iam/v1/public/users/login
+	r.POST("/iam/v1/public/users/login", func(c *gin.Context) { wrapGinHandler(c, s.HandleAPILogin) })
 	return r
 }
 
