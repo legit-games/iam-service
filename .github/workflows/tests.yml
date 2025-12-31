@@ -1,0 +1,51 @@
+name: Go Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      valkey:
+        image: valkey/valkey:latest
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping" --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21.x'
+
+      - name: Set up Docker Compose
+        run: |
+          docker --version
+          docker compose version || true
+
+      - name: Start PostgreSQL via Docker Compose
+        run: |
+          docker compose up -d postgres
+          echo "Waiting for Postgres to be healthy..."
+          for i in $(seq 1 40); do
+            docker compose exec -T postgres pg_isready -U oauth2 -d oauth2db >/dev/null 2>&1 && break || true
+            sleep 1
+          done
+          docker compose ps
+
+      - name: Run Go tests
+        env:
+          # Ensure tests use dockerized Postgres DSN
+          USER_DB_DSN: postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable
+          MIGRATE_DSN: postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable
+        run: |
+          go version
+          go test ./...
+
