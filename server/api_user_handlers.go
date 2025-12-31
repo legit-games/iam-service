@@ -70,9 +70,9 @@ func (s *Server) HandleAPIRegisterUser(w http.ResponseWriter, r *http.Request) e
 	defer db.Close()
 
 	var exists int
-	qExists := `SELECT 1 FROM users WHERE username=$1 LIMIT 1`
+	qExists := `SELECT 1 FROM accounts WHERE username=$1 LIMIT 1`
 	if driver == "sqlite" {
-		qExists = `SELECT 1 FROM users WHERE username=? LIMIT 1`
+		qExists = `SELECT 1 FROM accounts WHERE username=? LIMIT 1`
 	}
 	if err := db.QueryRowContext(r.Context(), qExists, payload.Username).Scan(&exists); err == nil {
 		w.WriteHeader(http.StatusConflict)
@@ -84,10 +84,10 @@ func (s *Server) HandleAPIRegisterUser(w http.ResponseWriter, r *http.Request) e
 
 	userID := models.LegitID()
 	hash, _ := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
-	qIns := `INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)`
+	qIns := `INSERT INTO accounts (id, username, password_hash) VALUES ($1, $2, $3)`
 	args := []interface{}{userID, payload.Username, string(hash)}
 	if driver == "sqlite" {
-		qIns = `INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)`
+		qIns = `INSERT INTO accounts (id, username, password_hash) VALUES (?, ?, ?)`
 	}
 	if _, err := db.ExecContext(r.Context(), qIns, args...); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)

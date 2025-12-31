@@ -50,7 +50,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	defer db.Close()
-	if _, err := db.Exec(`SELECT 1 FROM users LIMIT 1`); err != nil {
+	if _, err := db.Exec(`SELECT 1 FROM accounts LIMIT 1`); err != nil {
 		fmt.Fprintf(os.Stderr, "users table missing after migration: %v\n", err)
 		os.Exit(1)
 	}

@@ -107,7 +107,7 @@ func TestAPILogin_Success(t *testing.T) {
 	hash, _ := bcrypt.GenerateFromPassword([]byte("p@ssw0rd"), bcrypt.DefaultCost)
 	uid := models.LegitID()
 	uname := fmt.Sprintf("tester_%s", uid)
-	_, err = db.Exec(`INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)`, uid, uname, string(hash))
+	_, err = db.Exec(`INSERT INTO accounts (id, username, password_hash) VALUES ($1, $2, $3)`, uid, uname, string(hash))
 	if err != nil {
 		t.Fatalf("insert user: %v", err)
 	}

@@ -30,7 +30,7 @@ func TestAPIRegisterUser_Success(t *testing.T) {
 	db, err := openTestDB()
 	if err == nil {
 		defer db.Close()
-		_, _ = db.Exec(`DELETE FROM users WHERE username=$1`, uname)
+		_, _ = db.Exec(`DELETE FROM accounts WHERE username=$1`, uname)
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/iam/v1/public/users", bytes.NewBuffer(body))
