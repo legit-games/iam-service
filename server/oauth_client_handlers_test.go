@@ -23,7 +23,7 @@ func newClientRegEngine(t *testing.T) *gin.Engine {
 
 func TestClientRegistration_MethodNotAllowed(t *testing.T) {
 	engine := newClientRegEngine(t)
-	req := httptest.NewRequest(http.MethodGet, "/register", nil)
+	req := httptest.NewRequest(http.MethodGet, "/iam/v1/oauth/clients", nil)
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, req)
 	if w.Code != http.StatusMethodNotAllowed {
@@ -45,7 +45,7 @@ func TestClientRegistration_BadJSON(t *testing.T) {
 			os.Unsetenv("REG_DB_DSN")
 		}
 	}()
-	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString("{"))
+	req := httptest.NewRequest(http.MethodPost, "/iam/v1/oauth/clients", bytes.NewBufferString("{"))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, req)
@@ -70,7 +70,7 @@ func TestClientRegistration_MissingRedirectURIs(t *testing.T) {
 	}()
 	payload := map[string]interface{}{"name": "test-client", "client_secret": "secret"}
 	body, _ := json.Marshal(payload)
-	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/iam/v1/oauth/clients", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, req)
@@ -92,7 +92,7 @@ func TestClientRegistration_NotImplementedWhenDSNUnset(t *testing.T) {
 	}()
 	payload := map[string]interface{}{"name": "test-client", "client_secret": "secret", "redirect_uris": []string{"http://localhost/callback"}}
 	body, _ := json.Marshal(payload)
-	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/iam/v1/oauth/clients", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, req)
@@ -121,7 +121,7 @@ func TestClientRegistration_Success(t *testing.T) {
 		"redirect_uris": []string{"http://localhost/callback"},
 	}
 	body, _ := json.Marshal(payload)
-	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewBuffer(body))
+	req := httptest.NewRequest(http.MethodPost, "/iam/v1/oauth/clients", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, req)
