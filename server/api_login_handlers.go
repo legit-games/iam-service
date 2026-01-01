@@ -1,7 +1,6 @@
 package server
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,8 +8,9 @@ import (
 	"strings"
 
 	"github.com/go-oauth2/oauth2/v4"
-	_ "github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 // HandleAPILogin authenticates a user and issues access/refresh tokens via JSON API.
@@ -48,7 +48,8 @@ func (s *Server) HandleAPILogin(w http.ResponseWriter, r *http.Request) error {
 			"error_description": "set USER_DB_DSN to enable login",
 		})
 	}
-	db, err := sql.Open("postgres", dsn)
+	// Open GORM connection (raw SQL only)
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return json.NewEncoder(w).Encode(map[string]interface{}{
@@ -56,13 +57,14 @@ func (s *Server) HandleAPILogin(w http.ResponseWriter, r *http.Request) error {
 			"error_description": fmt.Sprintf("open db: %v", err),
 		})
 	}
-	defer db.Close()
 
 	var (
 		uid  string
 		hash string
 	)
-	if err := db.QueryRowContext(r.Context(), `SELECT id, password_hash FROM accounts WHERE username=$1`, payload.Username).Scan(&uid, &hash); err != nil {
+	// Raw query via GORM
+	row := db.WithContext(r.Context()).Raw(`SELECT id, password_hash FROM accounts WHERE username=$1`, payload.Username).Row()
+	if err := row.Scan(&uid, &hash); err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		return json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":             "invalid_grant",

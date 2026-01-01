@@ -1,7 +1,6 @@
 package server
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,8 +8,9 @@ import (
 	"strings"
 
 	"github.com/go-oauth2/oauth2/v4/models"
-	_ "github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 // JSON API handlers and swagger fragments
@@ -59,7 +59,8 @@ func (s *Server) HandleAPIRegisterUser(w http.ResponseWriter, r *http.Request) e
 			"error_description": "set USER_DB_DRIVER and USER_DB_DSN (or MIGRATE_DSN) to enable user registration",
 		})
 	}
-	db, err := sql.Open(driver, dsn)
+	// GORM connection
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return json.NewEncoder(w).Encode(map[string]interface{}{
@@ -67,14 +68,12 @@ func (s *Server) HandleAPIRegisterUser(w http.ResponseWriter, r *http.Request) e
 			"error_description": fmt.Sprintf("open db: %v", err),
 		})
 	}
-	defer db.Close()
 
 	var exists int
-	qExists := `SELECT 1 FROM accounts WHERE username=$1 LIMIT 1`
-	if driver == "sqlite" {
-		qExists = `SELECT 1 FROM accounts WHERE username=? LIMIT 1`
-	}
-	if err := db.QueryRowContext(r.Context(), qExists, payload.Username).Scan(&exists); err == nil {
+	// existence check via raw SQL
+	res := db.WithContext(r.Context()).Raw(`SELECT 1 FROM accounts WHERE username=$1 LIMIT 1`, payload.Username)
+	// Scan into exists; if no rows, Scan returns ErrRecordNotFound in GORM v2 when using First
+	if err := res.Row().Scan(&exists); err == nil {
 		w.WriteHeader(http.StatusConflict)
 		return json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":             "conflict",
@@ -84,12 +83,8 @@ func (s *Server) HandleAPIRegisterUser(w http.ResponseWriter, r *http.Request) e
 
 	userID := models.LegitID()
 	hash, _ := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
-	qIns := `INSERT INTO accounts (id, username, password_hash) VALUES ($1, $2, $3)`
-	args := []interface{}{userID, payload.Username, string(hash)}
-	if driver == "sqlite" {
-		qIns = `INSERT INTO accounts (id, username, password_hash) VALUES (?, ?, ?)`
-	}
-	if _, err := db.ExecContext(r.Context(), qIns, args...); err != nil {
+	// insert via raw SQL
+	if err := db.WithContext(r.Context()).Exec(`INSERT INTO accounts (id, username, password_hash) VALUES ($1, $2, $3)`, userID, payload.Username, string(hash)).Error; err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":             "server_error",
