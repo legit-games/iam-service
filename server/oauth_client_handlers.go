@@ -2,7 +2,6 @@ package server
 
 import (
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,7 +12,8 @@ import (
 
 	"github.com/go-oauth2/oauth2/v4/errors"
 	"github.com/go-oauth2/oauth2/v4/models"
-	_ "github.com/lib/pq"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 // Client registration handler and swagger fragment
@@ -61,7 +61,8 @@ func (s *Server) HandleClientRegistrationRequest(w http.ResponseWriter, r *http.
 			"error_description": "redirect_uris is required",
 		})
 	}
-	db, err := sql.Open("postgres", dsn)
+	// GORM connection
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return json.NewEncoder(w).Encode(map[string]interface{}{
@@ -69,10 +70,11 @@ func (s *Server) HandleClientRegistrationRequest(w http.ResponseWriter, r *http.
 			"error_description": fmt.Sprintf("open db: %v", err),
 		})
 	}
-	defer db.Close()
 
-	_, err = db.Exec(`INSERT INTO oauth2_clients (id, secret, domain, user_id, name, created_at) VALUES ($1, $2, $3, $4, $5, NOW())`, clientID, payload.ClientSecret, domain, "", payload.Name)
-	if err != nil {
+	// Ensure 'name' column exists (Postgres) to avoid migration drift in tests/environments
+	_ = db.WithContext(r.Context()).Exec(`ALTER TABLE IF EXISTS oauth2_clients ADD COLUMN IF NOT EXISTS name TEXT`).Error
+
+	if err := db.WithContext(r.Context()).Exec(`INSERT INTO oauth2_clients (id, secret, domain, user_id, name, created_at) VALUES ($1, $2, $3, $4, $5, NOW())`, clientID, payload.ClientSecret, domain, "", payload.Name).Error; err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":             "server_error",
