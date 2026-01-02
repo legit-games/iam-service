@@ -6,15 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-oauth2/oauth2/v4/errors"
 	"github.com/go-oauth2/oauth2/v4/models"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
 )
 
 // Client registration handler and swagger fragment
@@ -25,12 +22,16 @@ func (s *Server) HandleClientRegistrationRequest(w http.ResponseWriter, r *http.
 	}
 	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
 
-	dsn := strings.TrimSpace(os.Getenv("REG_DB_DSN"))
-	if dsn == "" {
-		w.WriteHeader(http.StatusNotImplemented)
+	// Use centralized DB accessor
+	db, err := s.GetRegDB(r.Context())
+	if err != nil {
+		if err == ErrRegDBDSNNotSet {
+			return NotImplemented(w, "set REG_DB_DSN to enable PostgreSQL-backed client registration")
+		}
+		w.WriteHeader(http.StatusInternalServerError)
 		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "not_implemented",
-			"error_description": "set REG_DB_DSN to enable PostgreSQL-backed client registration",
+			"error":             "server_error",
+			"error_description": fmt.Sprintf("open db: %v", err),
 		})
 	}
 
@@ -62,16 +63,6 @@ func (s *Server) HandleClientRegistrationRequest(w http.ResponseWriter, r *http.
 			"error_description": "redirect_uris is required",
 		})
 	}
-	// GORM connection
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "server_error",
-			"error_description": fmt.Sprintf("open db: %v", err),
-		})
-	}
-
 	// Ensure 'name' column exists (Postgres) to avoid migration drift in tests/environments
 	_ = db.WithContext(r.Context()).Exec(`ALTER TABLE IF EXISTS oauth2_clients ADD COLUMN IF NOT EXISTS name TEXT`).Error
 
@@ -152,9 +143,14 @@ func (s *Server) swaggerRegisterPath() map[string]interface{} {
 
 // HandleClientRegistrationGin registers a new OAuth2 client via Gin.
 func (s *Server) HandleClientRegistrationGin(c *gin.Context) {
-	dsn := strings.TrimSpace(os.Getenv("REG_DB_DSN"))
-	if dsn == "" {
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "set REG_DB_DSN to enable PostgreSQL-backed client registration"})
+	// Use centralized accessor too, with Gin response on error
+	db, err := s.GetRegDB(c.Request.Context())
+	if err != nil {
+		if err == ErrRegDBDSNNotSet {
+			NotImplementedGin(c, "set REG_DB_DSN to enable PostgreSQL-backed client registration")
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("open db: %v", err)})
 		return
 	}
 	var payload struct {
@@ -177,11 +173,6 @@ func (s *Server) HandleClientRegistrationGin(c *gin.Context) {
 	}
 	if domain == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_client_metadata", "error_description": "redirect_uris is required"})
-		return
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("open db: %v", err)})
 		return
 	}
 	_ = db.WithContext(c.Request.Context()).Exec(`ALTER TABLE IF EXISTS oauth2_clients ADD COLUMN IF NOT EXISTS name TEXT`).Error

@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
+	"sync"
 
 	"github.com/go-oauth2/oauth2/v4"
 	"github.com/go-oauth2/oauth2/v4/errors"
 	_ "github.com/lib/pq"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 // NewDefaultServer create a default authorization server
@@ -58,6 +62,50 @@ type Server struct {
 	ResponseTokenHandler         ResponseTokenHandler
 	RefreshTokenResolveHandler   RefreshTokenResolveHandler
 	AccessTokenResolveHandler    AccessTokenResolveHandler
+
+	// centralized DB handles (lazy-initialized)
+	dbMu   sync.Mutex
+	regDB  *gorm.DB
+	userDB *gorm.DB
+}
+
+// GetRegDB returns the registration DB (oauth2_clients) using config/env-backed DSN.
+// It lazily initializes and caches the connection; returns ErrRegDBDSNNotSet if DSN is empty.
+func (s *Server) GetRegDB(ctx context.Context) (*gorm.DB, error) {
+	dsn := GetConfig().RegDBDSN()
+	if strings.TrimSpace(dsn) == "" {
+		return nil, ErrRegDBDSNNotSet
+	}
+	s.dbMu.Lock()
+	defer s.dbMu.Unlock()
+	if s.regDB != nil {
+		return s.regDB, nil
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return nil, err
+	}
+	s.regDB = db
+	return db, nil
+}
+
+// GetUserDB returns the user/accounts DB using config/env-backed DSN.
+func (s *Server) GetUserDB(ctx context.Context) (*gorm.DB, error) {
+	dsn := GetConfig().UserDBDSN()
+	if strings.TrimSpace(dsn) == "" {
+		return nil, ErrUserDBDSNNotSet
+	}
+	s.dbMu.Lock()
+	defer s.dbMu.Unlock()
+	if s.userDB != nil {
+		return s.userDB, nil
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return nil, err
+	}
+	s.userDB = db
+	return db, nil
 }
 
 func (s *Server) handleError(w http.ResponseWriter, req *AuthorizeRequest, err error) error {

@@ -113,4 +113,4 @@ build: build-server build-client
 
 # Run full test suite ensuring DB is restarted fresh
 test: db-down db db-wait
-	go test ./...
+	go test ./... -v

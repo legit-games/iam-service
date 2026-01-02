@@ -1,0 +1,8 @@
+env: prod
+
+database:
+  user:
+    dsn: "postgres://oauth2:oauth2pass@db:5432/oauth2db?sslmode=disable"
+  reg:
+    dsn: "postgres://oauth2:oauth2pass@db:5432/oauth2db?sslmode=disable"
+
