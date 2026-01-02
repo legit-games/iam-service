@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/go-oauth2/oauth2/v4/errors"
 	"github.com/go-oauth2/oauth2/v4/models"
 	"gorm.io/driver/postgres"
@@ -74,7 +75,8 @@ func (s *Server) HandleClientRegistrationRequest(w http.ResponseWriter, r *http.
 	// Ensure 'name' column exists (Postgres) to avoid migration drift in tests/environments
 	_ = db.WithContext(r.Context()).Exec(`ALTER TABLE IF EXISTS oauth2_clients ADD COLUMN IF NOT EXISTS name TEXT`).Error
 
-	if err := db.WithContext(r.Context()).Exec(`INSERT INTO oauth2_clients (id, secret, domain, user_id, name, created_at) VALUES ($1, $2, $3, $4, $5, NOW())`, clientID, payload.ClientSecret, domain, "", payload.Name).Error; err != nil {
+	// Insert client without user_id column to match schema
+	if err := db.WithContext(r.Context()).Exec(`INSERT INTO oauth2_clients (id, secret, domain, name, created_at) VALUES ($1, $2, $3, $4, NOW())`, clientID, payload.ClientSecret, domain, payload.Name).Error; err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":             "server_error",
@@ -146,4 +148,53 @@ func (s *Server) swaggerRegisterPath() map[string]interface{} {
 			},
 		},
 	}
+}
+
+// HandleClientRegistrationGin registers a new OAuth2 client via Gin.
+func (s *Server) HandleClientRegistrationGin(c *gin.Context) {
+	dsn := strings.TrimSpace(os.Getenv("REG_DB_DSN"))
+	if dsn == "" {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "set REG_DB_DSN to enable PostgreSQL-backed client registration"})
+		return
+	}
+	var payload struct {
+		Name                    string   `json:"name"`
+		ClientSecret            string   `json:"client_secret"`
+		RedirectURIs            []string `json:"redirect_uris"`
+		TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "invalid JSON payload"})
+		return
+	}
+	clientID := models.LegitID()
+	if strings.TrimSpace(payload.ClientSecret) == "" {
+		payload.ClientSecret = genRandomHexText(32)
+	}
+	domain := ""
+	if len(payload.RedirectURIs) > 0 {
+		domain = payload.RedirectURIs[0]
+	}
+	if domain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_client_metadata", "error_description": "redirect_uris is required"})
+		return
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("open db: %v", err)})
+		return
+	}
+	_ = db.WithContext(c.Request.Context()).Exec(`ALTER TABLE IF EXISTS oauth2_clients ADD COLUMN IF NOT EXISTS name TEXT`).Error
+	if err := db.WithContext(c.Request.Context()).Exec(`INSERT INTO oauth2_clients (id, secret, domain, name, created_at) VALUES ($1, $2, $3, $4, NOW())`, clientID, payload.ClientSecret, domain, payload.Name).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("insert client: %v", err)})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{
+		"client_id":                  clientID,
+		"client_secret":              payload.ClientSecret,
+		"redirect_uris":              payload.RedirectURIs,
+		"client_name":                payload.Name,
+		"token_endpoint_auth_method": payload.TokenEndpointAuthMethod,
+		"client_id_issued_at":        time.Now().Unix(),
+	})
 }

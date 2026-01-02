@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/go-oauth2/oauth2/v4/models"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/postgres"
@@ -94,6 +95,49 @@ func (s *Server) HandleAPIRegisterUser(w http.ResponseWriter, r *http.Request) e
 
 	w.WriteHeader(http.StatusCreated)
 	return json.NewEncoder(w).Encode(map[string]interface{}{"user_id": userID})
+}
+
+// HandleAPIRegisterUserGin registers a new user via Gin.
+func (s *Server) HandleAPIRegisterUserGin(c *gin.Context) {
+	var payload struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "invalid JSON payload"})
+		return
+	}
+	payload.Username = strings.TrimSpace(payload.Username)
+	payload.Password = strings.TrimSpace(payload.Password)
+	if payload.Username == "" || payload.Password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "username and password are required"})
+		return
+	}
+	dsn := strings.TrimSpace(os.Getenv("USER_DB_DSN"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("MIGRATE_DSN"))
+	}
+	if dsn == "" {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "set USER_DB_DSN or MIGRATE_DSN to enable user registration"})
+		return
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("open db: %v", err)})
+		return
+	}
+	var exists int
+	if err := db.WithContext(c.Request.Context()).Raw(`SELECT 1 FROM accounts WHERE username=$1 LIMIT 1`, payload.Username).Row().Scan(&exists); err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "conflict", "error_description": "username already exists"})
+		return
+	}
+	userID := models.LegitID()
+	hash, _ := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
+	if err := db.WithContext(c.Request.Context()).Exec(`INSERT INTO accounts (id, username, password_hash) VALUES ($1, $2, $3)`, userID, payload.Username, string(hash)).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("insert user: %v", err)})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"user_id": userID})
 }
 
 // Swagger fragments for API paths
