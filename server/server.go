@@ -64,47 +64,80 @@ type Server struct {
 	AccessTokenResolveHandler    AccessTokenResolveHandler
 
 	// centralized DB handles (lazy-initialized)
-	dbMu   sync.Mutex
-	regDB  *gorm.DB
-	userDB *gorm.DB
+	dbMu      sync.Mutex
+	userRead  *gorm.DB
+	userWrite *gorm.DB
+	primary   *gorm.DB
 }
 
-// GetRegDB returns the registration DB (oauth2_clients) using config/env-backed DSN.
-// It lazily initializes and caches the connection; returns ErrRegDBDSNNotSet if DSN is empty.
-func (s *Server) GetRegDB(ctx context.Context) (*gorm.DB, error) {
-	dsn := GetConfig().RegDBDSN()
-	if strings.TrimSpace(dsn) == "" {
-		return nil, ErrRegDBDSNNotSet
+// GetPrimaryDB returns a shared primary connection based on user DSNs.
+func (s *Server) GetPrimaryDB() (*gorm.DB, error) {
+	cfg := GetConfig()
+	candidates := []string{
+		strings.TrimSpace(cfg.UserWriteDSN()),
+		strings.TrimSpace(cfg.UserReadDSN()),
+	}
+	var dsn string
+	for _, v := range candidates {
+		if v != "" {
+			dsn = v
+			break
+		}
+	}
+	if dsn == "" {
+		return nil, ErrUserDBDSNNotSet
 	}
 	s.dbMu.Lock()
 	defer s.dbMu.Unlock()
-	if s.regDB != nil {
-		return s.regDB, nil
+	if s.primary != nil {
+		return s.primary, nil
 	}
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, err
 	}
-	s.regDB = db
+	s.primary = db
+	// Also seed regWrite/userRead caches to the same pointer for consistency
+	s.userWrite = db
+	s.userRead = db
 	return db, nil
 }
 
-// GetUserDB returns the user/accounts DB using config/env-backed DSN.
-func (s *Server) GetUserDB(ctx context.Context) (*gorm.DB, error) {
-	dsn := GetConfig().UserDBDSN()
+// GetIAMReadDB returns the accounts read DB.
+func (s *Server) GetIAMReadDB() (*gorm.DB, error) {
+	dsn := GetConfig().UserReadDSN()
 	if strings.TrimSpace(dsn) == "" {
 		return nil, ErrUserDBDSNNotSet
 	}
 	s.dbMu.Lock()
 	defer s.dbMu.Unlock()
-	if s.userDB != nil {
-		return s.userDB, nil
+	if s.userWrite != nil {
+		return s.userWrite, nil
 	}
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, err
 	}
-	s.userDB = db
+	s.userWrite = db
+	return db, nil
+}
+
+// GetIAMWriteDB returns the accounts write DB.
+func (s *Server) GetIAMWriteDB() (*gorm.DB, error) {
+	dsn := GetConfig().UserWriteDSN()
+	if strings.TrimSpace(dsn) == "" {
+		return nil, ErrUserDBDSNNotSet
+	}
+	s.dbMu.Lock()
+	defer s.dbMu.Unlock()
+	if s.userWrite != nil {
+		return s.userWrite, nil
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return nil, err
+	}
+	s.userWrite = db
 	return db, nil
 }
 

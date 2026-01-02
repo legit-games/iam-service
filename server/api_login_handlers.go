@@ -39,7 +39,7 @@ func (s *Server) HandleAPILogin(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Open GORM connection (raw SQL only)
-	db, err := s.GetUserDB(r.Context())
+	db, err := s.GetIAMReadDB()
 	if err != nil {
 		if err == ErrUserDBDSNNotSet {
 			return NotImplemented(w, "set USER_DB_DSN to enable login")
@@ -99,7 +99,7 @@ func (s *Server) HandleAPILoginGin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "username and password are required"})
 		return
 	}
-	db, err := s.GetUserDB(c.Request.Context())
+	db, err := s.GetIAMReadDB()
 	if err != nil {
 		if err == ErrUserDBDSNNotSet {
 			NotImplementedGin(c, "set USER_DB_DSN to enable login")

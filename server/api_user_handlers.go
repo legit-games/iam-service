@@ -42,7 +42,7 @@ func (s *Server) HandleAPIRegisterUser(w http.ResponseWriter, r *http.Request) e
 		})
 	}
 
-	db, err := s.GetUserDB(r.Context())
+	dbRead, err := s.GetIAMReadDB()
 	if err != nil {
 		if err == ErrUserDBDSNNotSet {
 			w.WriteHeader(http.StatusNotImplemented)
@@ -51,10 +51,8 @@ func (s *Server) HandleAPIRegisterUser(w http.ResponseWriter, r *http.Request) e
 		w.WriteHeader(http.StatusInternalServerError)
 		return json.NewEncoder(w).Encode(map[string]interface{}{"error": "server_error", "error_description": fmt.Sprintf("open db: %v", err)})
 	}
-
 	var exists int
-	// existence check via raw SQL
-	res := db.WithContext(r.Context()).Raw(`SELECT 1 FROM accounts WHERE username=$1 LIMIT 1`, payload.Username)
+	res := dbRead.WithContext(r.Context()).Raw(`SELECT 1 FROM accounts WHERE username=$1 LIMIT 1`, payload.Username)
 	// Scan into exists; if no rows, Scan returns ErrRecordNotFound in GORM v2 when using First
 	if err := res.Row().Scan(&exists); err == nil {
 		w.WriteHeader(http.StatusConflict)
@@ -63,11 +61,18 @@ func (s *Server) HandleAPIRegisterUser(w http.ResponseWriter, r *http.Request) e
 			"error_description": "username already exists",
 		})
 	}
-
 	userID := models.LegitID()
 	hash, _ := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
+	dbWrite, err := s.GetIAMWriteDB()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "server_error",
+			"error_description": fmt.Sprintf("open db: %v", err),
+		})
+	}
 	// insert via raw SQL
-	if err := db.WithContext(r.Context()).Exec(`INSERT INTO accounts (id, username, password_hash) VALUES ($1, $2, $3)`, userID, payload.Username, string(hash)).Error; err != nil {
+	if err := dbWrite.WithContext(r.Context()).Exec(`INSERT INTO accounts (id, username, password_hash) VALUES ($1, $2, $3)`, userID, payload.Username, string(hash)).Error; err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":             "server_error",
@@ -95,7 +100,7 @@ func (s *Server) HandleAPIRegisterUserGin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "username and password are required"})
 		return
 	}
-	db, err := s.GetUserDB(c.Request.Context())
+	dbRead, err := s.GetIAMReadDB()
 	if err != nil {
 		if err == ErrUserDBDSNNotSet {
 			NotImplementedGin(c, "set USER_DB_DSN or MIGRATE_DSN to enable user registration")
@@ -105,13 +110,18 @@ func (s *Server) HandleAPIRegisterUserGin(c *gin.Context) {
 		return
 	}
 	var exists int
-	if err := db.WithContext(c.Request.Context()).Raw(`SELECT 1 FROM accounts WHERE username=$1 LIMIT 1`, payload.Username).Row().Scan(&exists); err == nil {
+	if err := dbRead.WithContext(c.Request.Context()).Raw(`SELECT 1 FROM accounts WHERE username=$1 LIMIT 1`, payload.Username).Row().Scan(&exists); err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "conflict", "error_description": "username already exists"})
 		return
 	}
 	userID := models.LegitID()
 	hash, _ := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
-	if err := db.WithContext(c.Request.Context()).Exec(`INSERT INTO accounts (id, username, password_hash) VALUES ($1, $2, $3)`, userID, payload.Username, string(hash)).Error; err != nil {
+	dbWrite, err := s.GetIAMWriteDB()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("open db: %v", err)})
+		return
+	}
+	if err := dbWrite.WithContext(c.Request.Context()).Exec(`INSERT INTO accounts (id, username, password_hash) VALUES ($1, $2, $3)`, userID, payload.Username, string(hash)).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("insert user: %v", err)})
 		return
 	}
@@ -122,7 +132,7 @@ func (s *Server) HandleAPIRegisterUserGin(c *gin.Context) {
 func (s *Server) swaggerAPILoginPath() map[string]interface{} {
 	return map[string]interface{}{
 		"post": map[string]interface{}{
-			"summary":     "User login and token issuance",
+			"summary":     "IAM login and token issuance",
 			"description": "Authenticates a user against the users table and issues access/refresh tokens. Client must authenticate using HTTP Basic.",
 			"requestBody": map[string]interface{}{
 				"required": true,
@@ -165,7 +175,7 @@ func (s *Server) swaggerAPILoginPath() map[string]interface{} {
 func (s *Server) swaggerRegisterUserPath() map[string]interface{} {
 	return map[string]interface{}{
 		"post": map[string]interface{}{
-			"summary":     "User registration",
+			"summary":     "IAM registration",
 			"description": "Registers a new user with username and password (bcrypt-hashed).",
 			"requestBody": map[string]interface{}{
 				"required": true,
@@ -180,7 +190,7 @@ func (s *Server) swaggerRegisterUserPath() map[string]interface{} {
 				},
 			},
 			"responses": map[string]interface{}{
-				"201": map[string]interface{}{"description": "User created", "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"user_id": map[string]interface{}{"type": "string", "description": "Hyphenless UUID string"}}}}}},
+				"201": map[string]interface{}{"description": "IAM created", "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"user_id": map[string]interface{}{"type": "string", "description": "Hyphenless UUID string"}}}}}},
 				"400": map[string]interface{}{"description": "Invalid request"},
 				"409": map[string]interface{}{"description": "Username conflict"},
 			},
