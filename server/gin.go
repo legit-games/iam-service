@@ -17,63 +17,42 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.Use(gin.Recovery())
 	r.Use(parseFormMiddleware())
 
-	// /oauth/authorize with session form restore middleware
-	r.GET("/oauth/authorize", restoreAuthorizeFormMiddleware(), func(c *gin.Context) {
-		wrapGinHandler(c, s.HandleAuthorizeRequest)
-	})
-	r.POST("/oauth/authorize", restoreAuthorizeFormMiddleware(), func(c *gin.Context) {
-		wrapGinHandler(c, s.HandleAuthorizeRequest)
-	})
+	// /oauth/authorize with session form restore middleware (keep standard handler)
+	r.GET("/oauth/authorize", restoreAuthorizeFormMiddleware(), ginFrom(s.HandleAuthorizeRequest))
+	r.POST("/oauth/authorize", restoreAuthorizeFormMiddleware(), ginFrom(s.HandleAuthorizeRequest))
 
-	// Token endpoint(s)
-	r.POST("/oauth/token", func(c *gin.Context) {
-		wrapGinHandler(c, s.HandleTokenRequest)
-	})
+	// Token endpoint(s) (keep standard handler)
+	r.POST("/oauth/token", ginFrom(s.HandleTokenRequest))
 	if s.Config != nil && s.Config.AllowGetAccessRequest {
-		r.GET("/oauth/token", func(c *gin.Context) {
-			wrapGinHandler(c, s.HandleTokenRequest)
-		})
+		r.GET("/oauth/token", ginFrom(s.HandleTokenRequest))
 	}
 
-	// Introspect & Revoke
-	r.POST("/oauth/introspect", func(c *gin.Context) {
-		wrapGinHandler(c, s.HandleIntrospectionRequest)
-	})
-	r.POST("/oauth/revoke", func(c *gin.Context) {
-		wrapGinHandler(c, s.HandleRevocationRequest)
-	})
+	// Introspect & Revoke (keep standard handler)
+	r.POST("/oauth/introspect", ginFrom(s.HandleIntrospectionRequest))
+	r.POST("/oauth/revoke", ginFrom(s.HandleRevocationRequest))
 
-	// Dynamic client registration
-	r.POST("/iam/v1/oauth/clients", func(c *gin.Context) {
-		wrapGinHandler(c, s.HandleClientRegistrationRequest)
-	})
+	// Swagger endpoints (Gin-native)
+	r.GET("/swagger.json", s.HandleSwaggerJSONGin)
+	r.GET("/swagger", s.HandleSwaggerUIGin)
 
-	// Swagger endpoints
-	r.GET("/swagger.json", func(c *gin.Context) {
-		wrapGinHandler(c, s.HandleSwaggerJSON)
-	})
-	r.GET("/swagger", func(c *gin.Context) {
-		wrapGinHandler(c, s.HandleSwaggerUI)
-	})
+	// Dynamic client registration (Gin-native)
+	r.POST("/iam/v1/oauth/clients", s.HandleClientRegistrationGin)
 
-	// JSON API routes required by tests
-	r.POST("/iam/v1/public/login", func(c *gin.Context) {
-		wrapGinHandler(c, s.HandleAPILogin)
-	})
-	// Public user registration
-	r.POST("/iam/v1/public/users", func(c *gin.Context) {
-		wrapGinHandler(c, s.HandleAPIRegisterUser)
-	})
+	// JSON API routes (Gin-native)
+	r.POST("/iam/v1/public/login", s.HandleAPILoginGin)
+	r.POST("/iam/v1/public/users", s.HandleAPIRegisterUserGin)
+
+	r.POST("/iam/v1/admin/accounts/:accountId/permissions", s.HandleAPIAddAccountPermissionsGin)
 
 	return r
 }
 
-// wrapGinHandler adapts existing handlers (http.ResponseWriter, *http.Request) to Gin.
-func wrapGinHandler(c *gin.Context, h func(http.ResponseWriter, *http.Request) error) {
-	// Let Gin continue processing the standard library request
-	_ = h(c.Writer, c.Request)
-	// Stop further handlers (including default 404) from running
-	c.Abort()
+// ginFrom adapts existing handlers (http.ResponseWriter, *http.Request) to a Gin handler.
+func ginFrom(h func(http.ResponseWriter, *http.Request) error) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		_ = h(c.Writer, c.Request)
+		c.Abort()
+	}
 }
 
 // parseFormMiddleware ensures r.ParseForm() is called for urlencoded/multipart requests so r.FormValue works.
