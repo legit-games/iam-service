@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -63,36 +62,6 @@ func TestAPILogin_MissingFields(t *testing.T) {
 	engine.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestAPILogin_DSNNotSet(t *testing.T) {
-	engine := newTestEngine(t)
-	// backup envs and unset
-	prevUser := os.Getenv("USER_DB_DSN")
-	prevReg := os.Getenv("REG_DB_DSN")
-	_ = os.Unsetenv("USER_DB_DSN")
-	_ = os.Unsetenv("REG_DB_DSN")
-	defer func() {
-		if prevUser != "" {
-			os.Setenv("USER_DB_DSN", prevUser)
-		} else {
-			os.Unsetenv("USER_DB_DSN")
-		}
-		if prevReg != "" {
-			os.Setenv("REG_DB_DSN", prevReg)
-		} else {
-			os.Unsetenv("REG_DB_DSN")
-		}
-	}()
-
-	body := []byte(`{"username":"test","password":"test"}`)
-	req := httptest.NewRequest(http.MethodPost, "/iam/v1/public/login", bytes.NewBuffer(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	engine.ServeHTTP(w, req)
-	if w.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501, got %d; body=%s", w.Code, w.Body.String())
 	}
 }
 

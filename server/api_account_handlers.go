@@ -4,12 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
 )
 
 // HandleAPIAddAccountPermissionsGin is a Gin-native handler to append permissions to an account's JSONB permissions column.
@@ -33,17 +30,12 @@ func (s *Server) HandleAPIAddAccountPermissionsGin(c *gin.Context) {
 		return
 	}
 
-	dsn := strings.TrimSpace(os.Getenv("USER_DB_DSN"))
-	if dsn == "" {
-		dsn = strings.TrimSpace(os.Getenv("MIGRATE_DSN"))
-	}
-	if dsn == "" {
-		c.JSON(501, gin.H{"error": "not_implemented", "error_description": "set USER_DB_DSN or MIGRATE_DSN"})
-		return
-	}
-
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := s.GetUserDB(c.Request.Context())
 	if err != nil {
+		if err == ErrUserDBDSNNotSet {
+			NotImplementedGin(c, "set USER_DB_DSN or MIGRATE_DSN")
+			return
+		}
 		c.JSON(500, gin.H{"error": "server_error", "error_description": fmt.Sprintf("open db: %v", err)})
 		return
 	}

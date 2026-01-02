@@ -1,9 +1,12 @@
 package server
 
 import (
+	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/go-oauth2/oauth2/v4"
 )
 
@@ -47,4 +50,27 @@ type AuthorizeRequest struct {
 	CodeChallengeMethod oauth2.CodeChallengeMethod
 	AccessTokenExp      time.Duration
 	Request             *http.Request
+}
+
+// Application-level sentinel errors for missing configuration.
+var (
+	ErrRegDBDSNNotSet  = errors.New("REG_DB_DSN not set")
+	ErrUserDBDSNNotSet = errors.New("USER_DB_DSN not set")
+)
+
+// NotImplemented writes a standardized not_implemented JSON error for net/http handlers.
+func NotImplemented(w http.ResponseWriter, description string) error {
+	w.WriteHeader(http.StatusNotImplemented)
+	return json.NewEncoder(w).Encode(map[string]interface{}{
+		"error":             "not_implemented",
+		"error_description": description,
+	})
+}
+
+// NotImplementedGin writes a standardized not_implemented JSON error for Gin handlers.
+func NotImplementedGin(c *gin.Context, description string) {
+	c.JSON(http.StatusNotImplemented, gin.H{
+		"error":             "not_implemented",
+		"error_description": description,
+	})
 }

@@ -4,14 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-oauth2/oauth2/v4/models"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
 )
 
 // JSON API handlers and swagger fragments
@@ -45,29 +42,14 @@ func (s *Server) HandleAPIRegisterUser(w http.ResponseWriter, r *http.Request) e
 		})
 	}
 
-	driver := strings.TrimSpace(os.Getenv("USER_DB_DRIVER"))
-	if driver == "" {
-		driver = "postgres"
-	}
-	dsn := strings.TrimSpace(os.Getenv("USER_DB_DSN"))
-	if dsn == "" {
-		dsn = strings.TrimSpace(os.Getenv("MIGRATE_DSN"))
-	}
-	if dsn == "" {
-		w.WriteHeader(http.StatusNotImplemented)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "not_implemented",
-			"error_description": "set USER_DB_DRIVER and USER_DB_DSN (or MIGRATE_DSN) to enable user registration",
-		})
-	}
-	// GORM connection
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := s.GetUserDB(r.Context())
 	if err != nil {
+		if err == ErrUserDBDSNNotSet {
+			w.WriteHeader(http.StatusNotImplemented)
+			return json.NewEncoder(w).Encode(map[string]interface{}{"error": "not_implemented", "error_description": "set USER_DB_DSN (or MIGRATE_DSN) to enable user registration"})
+		}
 		w.WriteHeader(http.StatusInternalServerError)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "server_error",
-			"error_description": fmt.Sprintf("open db: %v", err),
-		})
+		return json.NewEncoder(w).Encode(map[string]interface{}{"error": "server_error", "error_description": fmt.Sprintf("open db: %v", err)})
 	}
 
 	var exists int
@@ -113,16 +95,12 @@ func (s *Server) HandleAPIRegisterUserGin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "username and password are required"})
 		return
 	}
-	dsn := strings.TrimSpace(os.Getenv("USER_DB_DSN"))
-	if dsn == "" {
-		dsn = strings.TrimSpace(os.Getenv("MIGRATE_DSN"))
-	}
-	if dsn == "" {
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "set USER_DB_DSN or MIGRATE_DSN to enable user registration"})
-		return
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := s.GetUserDB(c.Request.Context())
 	if err != nil {
+		if err == ErrUserDBDSNNotSet {
+			NotImplementedGin(c, "set USER_DB_DSN or MIGRATE_DSN to enable user registration")
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("open db: %v", err)})
 		return
 	}

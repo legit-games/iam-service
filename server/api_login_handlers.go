@@ -4,14 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-oauth2/oauth2/v4"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
 )
 
 // HandleAPILogin authenticates a user and issues access/refresh tokens via JSON API.
@@ -41,17 +38,12 @@ func (s *Server) HandleAPILogin(w http.ResponseWriter, r *http.Request) error {
 		})
 	}
 
-	dsn := strings.TrimSpace(os.Getenv("USER_DB_DSN"))
-	if dsn == "" {
-		w.WriteHeader(http.StatusNotImplemented)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":             "not_implemented",
-			"error_description": "set USER_DB_DSN to enable login",
-		})
-	}
 	// Open GORM connection (raw SQL only)
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := s.GetUserDB(r.Context())
 	if err != nil {
+		if err == ErrUserDBDSNNotSet {
+			return NotImplemented(w, "set USER_DB_DSN to enable login")
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		return json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":             "server_error",
@@ -107,13 +99,12 @@ func (s *Server) HandleAPILoginGin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "username and password are required"})
 		return
 	}
-	dsn := strings.TrimSpace(os.Getenv("USER_DB_DSN"))
-	if dsn == "" {
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "set USER_DB_DSN to enable login"})
-		return
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := s.GetUserDB(c.Request.Context())
 	if err != nil {
+		if err == ErrUserDBDSNNotSet {
+			NotImplementedGin(c, "set USER_DB_DSN to enable login")
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("open db: %v", err)})
 		return
 	}
