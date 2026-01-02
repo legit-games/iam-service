@@ -3,22 +3,19 @@ package server
 import (
 	"database/sql"
 	"fmt"
-	"os"
 
 	_ "github.com/lib/pq"
 )
 
-// getTestDSN returns the DSN set by TestMain or a sensible default for Docker Postgres.
+// getTestDSN returns the DSN from AppConfig (write preferred, then read).
 func getTestDSN() (string, error) {
-	dsn := os.Getenv("USER_DB_DSN")
+	cfg := GetConfig()
+	dsn := cfg.UserWriteDSN()
 	if dsn == "" {
-		dsn = os.Getenv("MIGRATE_DSN")
+		dsn = cfg.UserReadDSN()
 	}
 	if dsn == "" {
-		dsn = "postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable"
-	}
-	if dsn == "" {
-		return "", fmt.Errorf("no DSN configured; ensure TestMain sets USER_DB_DSN or MIGRATE_DSN")
+		return "", fmt.Errorf("no DSN configured in config; ensure config.test.yaml has database.iam.dsn/read/write")
 	}
 	return dsn, nil
 }

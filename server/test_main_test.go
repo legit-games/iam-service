@@ -3,7 +3,9 @@ package server
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,18 +15,18 @@ import (
 
 // TestMain configures and runs DB migrations once before package tests against Docker PostgreSQL.
 func TestMain(m *testing.M) {
-	// Docker postgres connection
-	dsn := "postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable"
-	os.Setenv("MIGRATE_ON_START", "1")
-	os.Setenv("MIGRATE_DRIVER", "postgres")
-	os.Setenv("MIGRATE_DSN", dsn)
-	os.Setenv("USER_DB_DRIVER", "postgres")
-	os.Setenv("USER_DB_DSN", dsn)
+	// Load config (files + env overrides)
+	cfg := GetConfig()
+	enabled, driver, dsn, cmd, target := cfg.MigrateOptionsFromConfig()
+	if strings.TrimSpace(dsn) == "" {
+		// Fallback to IAM DB DSN if migrate.dsn is missing
+		dsn = cfg.UserWriteDSN()
+	}
 
 	// Wait for DB to be ready (simple retry)
 	var ready bool
 	for i := 0; i < 20; i++ {
-		if db, err := sql.Open("postgres", dsn); err == nil {
+		if db, err := sql.Open(driver, dsn); err == nil {
 			if err = db.Ping(); err == nil {
 				ready = true
 				_ = db.Close()
@@ -35,26 +37,37 @@ func TestMain(m *testing.M) {
 		time.Sleep(1 * time.Second)
 	}
 	if !ready {
-		fmt.Fprintf(os.Stderr, "postgres is not ready on localhost:5432\n")
-		os.Exit(1)
+		log.Printf("postgres is not ready: driver=%s dsn=%s", driver, dsn)
+		// Exit with failure to indicate DB not available
+		panic("db not ready")
 	}
 
-	if err := migrate.RunFromEnv(); err != nil {
-		fmt.Fprintf(os.Stderr, "migrate failed: %v\n", err)
-		os.Exit(1)
+	log.Printf("postgres is ready: driver=%s dsn=%s", driver, dsn)
+	if enabled {
+		logger := migrateLogger()
+		if err := migrate.Run(migrate.Options{Driver: driver, DSN: dsn, Command: cmd, Target: target, Logger: logger}); err != nil {
+			panic(fmt.Sprintf("migrate failed: %v", err))
+		}
 	}
-	// Verify users table exists
-	db, err := sql.Open("postgres", dsn)
+
+	// Verify accounts table exists
+	db, err := sql.Open(driver, dsn)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "open test db failed: %v\n", err)
-		os.Exit(1)
+		panic(fmt.Sprintf("open test db failed: %v", err))
 	}
 	defer db.Close()
 	if _, err := db.Exec(`SELECT 1 FROM accounts LIMIT 1`); err != nil {
-		fmt.Fprintf(os.Stderr, "users table missing after migration: %v\n", err)
-		os.Exit(1)
+		log.Printf("accounts table missing after migration: %v", err)
+		panic(fmt.Sprintf("accounts table missing after migration: %v", err))
 	}
 
 	code := m.Run()
-	os.Exit(code)
+	if code != 0 {
+		log.Printf("tests failed with code %d", code)
+		panic(fmt.Sprintf("tests failed with code %d", code))
+	}
+}
+
+func migrateLogger() *log.Logger {
+	return log.New(os.Stdout, "[migrate] ", log.LstdFlags)
 }

@@ -30,7 +30,7 @@ func (s *Server) HandleAPIAddAccountPermissionsGin(c *gin.Context) {
 		return
 	}
 
-	db, err := s.GetUserDB(c.Request.Context())
+	db, err := s.GetIAMReadDB()
 	if err != nil {
 		if err == ErrUserDBDSNNotSet {
 			NotImplementedGin(c, "set USER_DB_DSN or MIGRATE_DSN")

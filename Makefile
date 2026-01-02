@@ -111,6 +111,11 @@ register:
 build: build-server build-client
 	@echo "Built both server and client."
 
+# Use bash for recipe evaluation to ensure inline envs are applied consistently
+SHELL := /bin/bash
+.SHELLFLAGS := -lc
+
 # Run full test suite ensuring DB is restarted fresh
 test: db-down db db-wait
+	env APP_ENV=test
 	go test ./... -v

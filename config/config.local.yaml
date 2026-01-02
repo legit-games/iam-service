@@ -1,8 +1,14 @@
 env: local
 
 database:
-  user:
-    dsn: "postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable"
-  reg:
-    dsn: "postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable"
-
+  iam:
+    read:
+      dsn: "postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable"
+    write:
+      dsn: "postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable"
+migrate:
+  on_start: true
+  driver: "postgres"
+  dsn: "postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable"
+  cmd: "up"
+  target: 0

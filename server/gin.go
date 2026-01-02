@@ -35,13 +35,11 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.GET("/swagger.json", s.HandleSwaggerJSONGin)
 	r.GET("/swagger", s.HandleSwaggerUIGin)
 
-	// Dynamic client registration (Gin-native)
-	r.POST("/iam/v1/oauth/clients", s.HandleClientRegistrationGin)
-
 	// JSON API routes (Gin-native)
 	r.POST("/iam/v1/public/login", s.HandleAPILoginGin)
 	r.POST("/iam/v1/public/users", s.HandleAPIRegisterUserGin)
 
+	// Admin: add permissions to an account (Gin-native)
 	r.POST("/iam/v1/admin/accounts/:accountId/permissions", s.HandleAPIAddAccountPermissionsGin)
 
 	return r
