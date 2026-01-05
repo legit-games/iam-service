@@ -54,10 +54,10 @@ func NewDBClientStore(db *gorm.DB) *DBClientStore { return &DBClientStore{DB: db
 func (s *DBClientStore) Upsert(ctx context.Context, c *models.Client) error {
 	b, _ := json.Marshal(c.Permissions)
 	return s.DB.WithContext(ctx).Exec(
-		`INSERT INTO oauth2_clients(id, secret, domain, user_id, public, permissions)
-		 VALUES(?,?,?,?,?,?::jsonb)
-		 ON CONFLICT(id) DO UPDATE SET secret=excluded.secret, domain=excluded.domain, user_id=excluded.user_id, public=excluded.public, permissions=excluded.permissions, updated_at=CURRENT_TIMESTAMP`,
-		c.ID, c.Secret, c.Domain, c.UserID, c.Public, string(b),
+		`INSERT INTO oauth2_clients(id, secret, domain, user_id, public, permissions, namespace)
+		 VALUES(?,?,?,?,?,?::jsonb,?)
+		 ON CONFLICT(id) DO UPDATE SET secret=excluded.secret, domain=excluded.domain, user_id=excluded.user_id, public=excluded.public, permissions=excluded.permissions, namespace=excluded.namespace, updated_at=CURRENT_TIMESTAMP`,
+		c.ID, c.Secret, c.Domain, c.UserID, c.Public, string(b), c.Namespace,
 	).Error
 }
 
@@ -76,8 +76,9 @@ func (s *DBClientStore) GetByID(ctx context.Context, id string) (oauth2.ClientIn
 		UserID      string
 		Public      bool
 		Permissions string
+		Namespace   string
 	}
-	if err := s.DB.WithContext(ctx).Raw(`SELECT id, secret, domain, user_id, public, permissions::text AS permissions FROM oauth2_clients WHERE id=?`, id).Scan(&row).Error; err != nil {
+	if err := s.DB.WithContext(ctx).Raw(`SELECT id, secret, domain, user_id, public, permissions::text AS permissions, namespace FROM oauth2_clients WHERE id=?`, id).Scan(&row).Error; err != nil {
 		return nil, err
 	}
 	if row.ID == "" {
@@ -85,7 +86,7 @@ func (s *DBClientStore) GetByID(ctx context.Context, id string) (oauth2.ClientIn
 	}
 	var perms []string
 	_ = json.Unmarshal([]byte(row.Permissions), &perms)
-	return &models.Client{ID: row.ID, Secret: row.Secret, Domain: row.Domain, UserID: row.UserID, Public: row.Public, Permissions: perms}, nil
+	return &models.Client{ID: row.ID, Secret: row.Secret, Domain: row.Domain, UserID: row.UserID, Public: row.Public, Permissions: perms, Namespace: row.Namespace}, nil
 }
 
 // List returns a page of clients ordered by id.
@@ -106,15 +107,48 @@ func (s *DBClientStore) List(ctx context.Context, offset, limit int) ([]models.C
 		UserID      string
 		Public      bool
 		Permissions string
+		Namespace   string
 	}
-	if err := s.DB.WithContext(ctx).Raw(`SELECT id, secret, domain, user_id, public, permissions::text AS permissions FROM oauth2_clients ORDER BY id LIMIT ? OFFSET ?`, limit, offset).Scan(&rows).Error; err != nil {
+	if err := s.DB.WithContext(ctx).Raw(`SELECT id, secret, domain, user_id, public, permissions::text AS permissions, namespace FROM oauth2_clients ORDER BY id LIMIT ? OFFSET ?`, limit, offset).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]models.Client, 0, len(rows))
 	for _, r := range rows {
 		var perms []string
 		_ = json.Unmarshal([]byte(r.Permissions), &perms)
-		out = append(out, models.Client{ID: r.ID, Secret: r.Secret, Domain: r.Domain, UserID: r.UserID, Public: r.Public, Permissions: perms})
+		out = append(out, models.Client{ID: r.ID, Secret: r.Secret, Domain: r.Domain, UserID: r.UserID, Public: r.Public, Permissions: perms, Namespace: r.Namespace})
+	}
+	return out, nil
+}
+
+// ListByNamespace returns clients filtered by namespace.
+func (s *DBClientStore) ListByNamespace(ctx context.Context, namespace string, offset, limit int) ([]models.Client, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var rows []struct {
+		ID          string
+		Secret      string
+		Domain      string
+		UserID      string
+		Public      bool
+		Permissions string
+		Namespace   string
+	}
+	if err := s.DB.WithContext(ctx).Raw(`SELECT id, secret, domain, user_id, public, permissions::text AS permissions, namespace FROM oauth2_clients WHERE namespace = ? ORDER BY id LIMIT ? OFFSET ?`, namespace, limit, offset).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]models.Client, 0, len(rows))
+	for _, r := range rows {
+		var perms []string
+		_ = json.Unmarshal([]byte(r.Permissions), &perms)
+		out = append(out, models.Client{ID: r.ID, Secret: r.Secret, Domain: r.Domain, UserID: r.UserID, Public: r.Public, Permissions: perms, Namespace: r.Namespace})
 	}
 	return out, nil
 }

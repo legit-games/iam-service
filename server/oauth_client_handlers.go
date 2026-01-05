@@ -18,6 +18,7 @@ type UpsertClientRequest struct {
 	Domain      string   `json:"domain" binding:"required"`
 	UserID      string   `json:"user_id"`
 	Public      bool     `json:"public"`
+	Namespace   string   `json:"namespace"`
 	Permissions []string `json:"permissions"`
 }
 
@@ -37,7 +38,7 @@ func (s *Server) HandleUpsertClientGin(c *gin.Context) {
 		return
 	}
 	cliStore := s.getDBClientStore()
-	if err := cliStore.Upsert(c.Request.Context(), &models.Client{ID: req.ID, Secret: req.Secret, Domain: req.Domain, UserID: req.UserID, Public: req.Public, Permissions: req.Permissions}); err != nil {
+	if err := cliStore.Upsert(c.Request.Context(), &models.Client{ID: req.ID, Secret: req.Secret, Domain: req.Domain, UserID: req.UserID, Public: req.Public, Namespace: req.Namespace, Permissions: req.Permissions}); err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
@@ -83,6 +84,7 @@ func (s *Server) HandleGetClientGin(c *gin.Context) {
 		"domain":      r.Domain,
 		"user_id":     r.UserID,
 		"public":      r.Public,
+		"namespace":   r.Namespace,
 		"permissions": r.Permissions,
 	})
 }
@@ -117,6 +119,76 @@ func (s *Server) HandleDeleteClientGin(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"deleted": true})
+}
+
+// HandleListClientsByNamespaceGin returns clients in a given namespace.
+func (s *Server) HandleListClientsByNamespaceGin(c *gin.Context) {
+	if _, err := s.GetPrimaryDB(); err != nil {
+		c.JSON(http.StatusServiceUnavailable, errorResponse(err))
+		return
+	}
+	ns := c.Param("ns")
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	cliStore := s.getDBClientStore()
+	list, err := cliStore.ListByNamespace(c.Request.Context(), ns, offset, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+	c.JSON(http.StatusOK, list)
+}
+
+// HandleUpsertClientByNamespaceGin creates or updates a client within a specific namespace.
+func (s *Server) HandleUpsertClientByNamespaceGin(c *gin.Context) {
+	if _, err := s.GetPrimaryDB(); err != nil {
+		c.JSON(http.StatusServiceUnavailable, errorResponse(err))
+		return
+	}
+	ns := c.Param("ns")
+	var req UpsertClientRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+	// Override request namespace with path namespace for safety
+	req.Namespace = ns
+	cliStore := s.getDBClientStore()
+	if err := cliStore.Upsert(c.Request.Context(), &models.Client{ID: req.ID, Secret: req.Secret, Domain: req.Domain, UserID: req.UserID, Public: req.Public, Namespace: req.Namespace, Permissions: req.Permissions}); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"id": req.ID, "namespace": ns})
+}
+
+// HandleUpdateClientPermissionsByNamespaceGin updates permissions for a client constrained to a namespace path param.
+func (s *Server) HandleUpdateClientPermissionsByNamespaceGin(c *gin.Context) {
+	if _, err := s.GetPrimaryDB(); err != nil {
+		c.JSON(http.StatusServiceUnavailable, errorResponse(err))
+		return
+	}
+	ns := c.Param("ns")
+	clientID := c.Param("id")
+	var req UpdateClientPermissionsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+	cliStore := s.getDBClientStore()
+	// Optional: verify client belongs to ns
+	if ci, err := cliStore.GetByID(c.Request.Context(), clientID); err == nil {
+		if mc, ok := ci.(*models.Client); ok {
+			if mc.Namespace != ns {
+				c.JSON(http.StatusForbidden, errorResponse(errors.ErrInvalidClient))
+				return
+			}
+		}
+	}
+	if err := cliStore.UpdatePermissions(c.Request.Context(), clientID, req.Permissions); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"id": clientID, "namespace": ns, "permissions": req.Permissions})
 }
 
 // helper: get DB client store

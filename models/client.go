@@ -41,11 +41,12 @@ func (s *Snowflake) Next() int64 {
 
 // Client client model
 type Client struct {
-	ID     string
-	Secret string
-	Domain string
-	Public bool
-	UserID string
+	ID        string
+	Secret    string
+	Domain    string
+	Public    bool
+	UserID    string
+	Namespace string
 	// Permissions assigned to this OAuth client (applied to client_credentials tokens)
 	Permissions []string
 }
@@ -77,3 +78,6 @@ func (c *Client) GetUserID() string {
 
 // GetPermissions returns the permissions assigned to this client.
 func (c *Client) GetPermissions() []string { return c.Permissions }
+
+// GetNamespace returns the namespace this client belongs to.
+func (c *Client) GetNamespace() string { return c.Namespace }
