@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -44,6 +46,26 @@ func NewServer(cfg *Config, manager oauth2.Manager) *Server {
 		return "", errors.ErrAccessDenied
 	}
 
+	// OIDC setup: generate RSA key and attach id_token via ExtensionFieldsHandler
+	if s.Config != nil && s.Config.OIDCEnabled {
+		_ = s.ensureOIDCKeys()
+		prevExt := s.ExtensionFieldsHandler
+		s.ExtensionFieldsHandler = func(ti oauth2.TokenInfo) map[string]interface{} {
+			fields := map[string]interface{}{}
+			if prevExt != nil {
+				for k, v := range prevExt(ti) {
+					fields[k] = v
+				}
+			}
+			if strings.Contains(" "+ti.GetScope()+" ", " openid ") {
+				if idt, err := s.signIDToken(ti); err == nil && idt != "" {
+					fields["id_token"] = idt
+				}
+			}
+			return fields
+		}
+	}
+
 	// initialize stores if DB available
 	if db, err := s.GetPrimaryDB(); err == nil {
 		s.nsStore = store.NewNamespaceStore(db)
@@ -82,6 +104,24 @@ type Server struct {
 	userRead  *gorm.DB
 	userWrite *gorm.DB
 	primary   *gorm.DB
+
+	// OIDC signing state
+	kid     string
+	privKey *rsa.PrivateKey
+}
+
+func (s *Server) ensureOIDCKeys() error {
+	if s.privKey != nil {
+		return nil
+	}
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return err
+	}
+	s.privKey = key
+	// simple kid value; in production, use stable rotation strategy
+	s.kid = "k1"
+	return nil
 }
 
 // GetPrimaryDB returns a shared primary connection based on user DSNs.

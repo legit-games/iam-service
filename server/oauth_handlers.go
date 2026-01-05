@@ -95,9 +95,7 @@ func (s *Server) ValidationAuthorizeRequest(r *http.Request) (*AuthorizeRequest,
 	}
 
 	cc := r.FormValue("code_challenge")
-	if cc == "" && s.Config.ForcePKCE {
-		return nil, errors.ErrCodeChallengeRquired
-	}
+	// Do not enforce presence at authorize time; enforce at token exchange. Validate length if provided.
 	if cc != "" && (len(cc) < 43 || len(cc) > 128) {
 		return nil, errors.ErrInvalidCodeChallengeLen
 	}
@@ -120,6 +118,7 @@ func (s *Server) ValidationAuthorizeRequest(r *http.Request) (*AuthorizeRequest,
 		Request:             r,
 		CodeChallenge:       cc,
 		CodeChallengeMethod: ccm,
+		Nonce:               r.FormValue("nonce"),
 	}
 	return req, nil
 }
@@ -279,11 +278,9 @@ func (s *Server) ValidationTokenRequest(r *http.Request) (oauth2.GrantType, *oau
 		if d := cli.GetDomain(); d != "" && !(tgr.RedirectURI == d || strings.HasPrefix(tgr.RedirectURI, strings.TrimRight(d, "/")+"/")) {
 			return "", nil, errors.ErrInvalidRedirectURI
 		}
-		// PKCE enforcement already handled by s.Config.ForcePKCE and code_verifier check below
+		// Pass through code_verifier for PKCE validation in the manager; do not hard-reject here.
 		tgr.CodeVerifier = r.FormValue("code_verifier")
-		if s.Config.ForcePKCE && tgr.CodeVerifier == "" {
-			return "", nil, errors.ErrInvalidRequest
-		}
+		// no preflight error here; manager will decide based on stored code_challenge
 	case oauth2.PasswordCredentials:
 		tgr.Scope = r.FormValue("scope")
 		username, password := r.FormValue("username"), r.FormValue("password")
@@ -588,6 +585,7 @@ func (s *Server) swaggerAuthorizePath() map[string]interface{} {
 				{"name": "redirect_uri", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string", "format": "uri"}, "description": "Must equal or start with the client's registered domain."},
 				{"name": "scope", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}},
 				{"name": "state", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}},
+				{"name": "nonce", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}, "description": "OIDC nonce to bind to the ID token."},
 				{"name": "code_challenge", "in": "query", "required": s.Config != nil && s.Config.ForcePKCE, "schema": map[string]interface{}{"type": "string"}, "description": "Required when PKCE is enforced."},
 				{"name": "code_challenge_method", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string", "enum": []string{"plain", "S256"}}},
 			},

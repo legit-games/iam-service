@@ -31,6 +31,15 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.POST("/oauth/introspect", ginFrom(s.HandleIntrospectionRequest))
 	r.POST("/oauth/revoke", ginFrom(s.HandleRevocationRequest))
 
+	// OIDC endpoints
+	if s.Config != nil && s.Config.OIDCEnabled {
+		r.GET("/.well-known/openid-configuration", ginFrom(s.HandleOIDCDiscovery))
+		r.GET("/.well-known/jwks.json", ginFrom(s.HandleOIDCJWKS))
+		r.GET("/oauth/userinfo", ginFrom(s.HandleOIDCUserInfo))
+		// POST userinfo is also valid per spec
+		r.POST("/oauth/userinfo", ginFrom(s.HandleOIDCUserInfo))
+	}
+
 	// Swagger endpoints (Gin-native)
 	r.GET("/swagger.json", s.HandleSwaggerJSONGin)
 	r.GET("/swagger", s.HandleSwaggerUIGin)
