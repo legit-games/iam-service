@@ -13,6 +13,10 @@ import (
 	_ "github.com/lib/pq"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+
+	// use local store package
+	"github.com/go-oauth2/oauth2/v4/store"
 )
 
 // NewDefaultServer create a default authorization server
@@ -22,24 +26,31 @@ func NewDefaultServer(manager oauth2.Manager) *Server {
 
 // NewServer create authorization server
 func NewServer(cfg *Config, manager oauth2.Manager) *Server {
-	srv := &Server{
+	s := &Server{
 		Config:  cfg,
 		Manager: manager,
 	}
 
 	// default handlers
-	srv.ClientInfoHandler = ClientBasicHandler
-	srv.RefreshTokenResolveHandler = RefreshTokenFormResolveHandler
-	srv.AccessTokenResolveHandler = AccessTokenDefaultResolveHandler
+	s.ClientInfoHandler = ClientBasicHandler
+	s.RefreshTokenResolveHandler = RefreshTokenFormResolveHandler
+	s.AccessTokenResolveHandler = AccessTokenDefaultResolveHandler
 
-	srv.UserAuthorizationHandler = func(w http.ResponseWriter, r *http.Request) (string, error) {
+	s.UserAuthorizationHandler = func(w http.ResponseWriter, r *http.Request) (string, error) {
 		return "", errors.ErrAccessDenied
 	}
 
-	srv.PasswordAuthorizationHandler = func(ctx context.Context, clientID, username, password string) (string, error) {
+	s.PasswordAuthorizationHandler = func(ctx context.Context, clientID, username, password string) (string, error) {
 		return "", errors.ErrAccessDenied
 	}
-	return srv
+
+	// initialize stores if DB available
+	if db, err := s.GetPrimaryDB(); err == nil {
+		s.nsStore = store.NewNamespaceStore(db)
+		s.userStore = store.NewUserStore(db)
+	}
+	// gin routes will be registered via NewGinEngine
+	return s
 }
 
 // Server Provide authorization server
@@ -62,6 +73,9 @@ type Server struct {
 	ResponseTokenHandler         ResponseTokenHandler
 	RefreshTokenResolveHandler   RefreshTokenResolveHandler
 	AccessTokenResolveHandler    AccessTokenResolveHandler
+
+	nsStore   *store.NamespaceStore
+	userStore *store.UserStore
 
 	// centralized DB handles (lazy-initialized)
 	dbMu      sync.Mutex
@@ -92,7 +106,9 @@ func (s *Server) GetPrimaryDB() (*gorm.DB, error) {
 	if s.primary != nil {
 		return s.primary, nil
 	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +130,9 @@ func (s *Server) GetIAMReadDB() (*gorm.DB, error) {
 	if s.userWrite != nil {
 		return s.userWrite, nil
 	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +151,9 @@ func (s *Server) GetIAMWriteDB() (*gorm.DB, error) {
 	if s.userWrite != nil {
 		return s.userWrite, nil
 	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
 	if err != nil {
 		return nil, err
 	}

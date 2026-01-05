@@ -1,82 +1,87 @@
 package server
 
 import (
-	"database/sql"
-	"encoding/json"
-	"fmt"
-	"strings"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
 
-// HandleAPIAddAccountPermissionsGin is a Gin-native handler to append permissions to an account's JSONB permissions column.
-// POST /iam/v1/admin/accounts/:accountId/permissions
-// Body: { "permissions": ["ADMIN:..._READ", ...] }
-func (s *Server) HandleAPIAddAccountPermissionsGin(c *gin.Context) {
-	accountID := strings.TrimSpace(c.Param("accountId"))
-	if accountID == "" {
-		c.JSON(400, gin.H{"error": "invalid_request", "error_description": "accountId is required in path"})
-		return
-	}
-	var payload struct {
-		Permissions []string `json:"permissions"`
-	}
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(400, gin.H{"error": "invalid_request", "error_description": "invalid JSON payload"})
-		return
-	}
-	if len(payload.Permissions) == 0 {
-		c.JSON(400, gin.H{"error": "invalid_request", "error_description": "permissions array is required"})
-		return
-	}
-
-	db, err := s.GetIAMReadDB()
-	if err != nil {
-		if err == ErrUserDBDSNNotSet {
-			NotImplementedGin(c, "set USER_DB_DSN or MIGRATE_DSN")
-			return
-		}
-		c.JSON(500, gin.H{"error": "server_error", "error_description": fmt.Sprintf("open db: %v", err)})
-		return
-	}
-
-	// Load existing permissions
-	var raw sql.NullString
-	row := db.WithContext(c.Request.Context()).Raw(`SELECT permissions::text FROM accounts WHERE id=$1`, accountID).Row()
-	if err := row.Scan(&raw); err != nil && err != sql.ErrNoRows {
-		c.JSON(500, gin.H{"error": "server_error", "error_description": fmt.Sprintf("select permissions: %v", err)})
-		return
-	}
-	// Merge unique
-	existing := map[string]struct{}{}
-	if raw.Valid && strings.TrimSpace(raw.String) != "" {
-		var arr []string
-		_ = json.Unmarshal([]byte(raw.String), &arr)
-		for _, p := range arr {
-			p = strings.TrimSpace(p)
-			if p != "" {
-				existing[p] = struct{}{}
-			}
-		}
-	}
-	for _, p := range payload.Permissions {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			existing[p] = struct{}{}
-		}
-	}
-	// Build array
-	merged := make([]string, 0, len(existing))
-	for p := range existing {
-		merged = append(merged, p)
-	}
-	buf, _ := json.Marshal(merged)
-
-	// Update JSONB column
-	if err := db.WithContext(c.Request.Context()).Exec(`UPDATE accounts SET permissions=$1::jsonb WHERE id=$2`, string(buf), accountID).Error; err != nil {
-		c.JSON(500, gin.H{"error": "server_error", "error_description": fmt.Sprintf("update permissions: %v", err)})
-		return
-	}
-
-	c.JSON(200, gin.H{"status": "ok"})
+type CreateHeadAccountRequest struct {
+	AccountID    string `json:"account_id" binding:"required"`
+	Username     string `json:"username" binding:"required"`
+	PasswordHash string `json:"password_hash" binding:"required"`
 }
+
+func (s *Server) handleCreateHeadAccount(c *gin.Context) {
+	var req CreateHeadAccountRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+	if err := s.userStore.CreateHeadAccount(c.Request.Context(), req.AccountID, req.Username, req.PasswordHash); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"account_id": req.AccountID})
+}
+
+type CreateHeadlessAccountRequest struct {
+	AccountID         string `json:"account_id" binding:"required"`
+	Namespace         string `json:"namespace" binding:"required"`
+	ProviderType      string `json:"provider_type" binding:"required"`
+	ProviderAccountID string `json:"provider_account_id" binding:"required"`
+}
+
+func (s *Server) handleCreateHeadlessAccount(c *gin.Context) {
+	var req CreateHeadlessAccountRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+	if err := s.userStore.CreateHeadlessAccount(c.Request.Context(), req.AccountID, req.Namespace, req.ProviderType, req.ProviderAccountID); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"account_id": req.AccountID})
+}
+
+type LinkAccountRequest struct {
+	Namespace         string `json:"namespace" binding:"required"`
+	HeadlessAccountID string `json:"headless_account_id" binding:"required"`
+}
+
+func (s *Server) handleLinkAccount(c *gin.Context) {
+	headAccountID := c.Param("id")
+	var req LinkAccountRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+	if err := s.userStore.Link(c.Request.Context(), req.Namespace, headAccountID, req.HeadlessAccountID); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"linked": true})
+}
+
+type UnlinkAccountRequest struct {
+	Namespace         string `json:"namespace" binding:"required"`
+	ProviderType      string `json:"provider_type" binding:"required"`
+	ProviderAccountID string `json:"provider_account_id" binding:"required"`
+}
+
+func (s *Server) handleUnlinkAccount(c *gin.Context) {
+	accountID := c.Param("id")
+	var req UnlinkAccountRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+	if err := s.userStore.Unlink(c.Request.Context(), accountID, req.Namespace, req.ProviderType, req.ProviderAccountID); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"unlinked": true})
+}
+
+func errorResponse(err error) map[string]string { return map[string]string{"error": err.Error()} }

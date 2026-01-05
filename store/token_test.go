@@ -2,7 +2,7 @@ package store_test
 
 import (
 	"context"
-	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -21,9 +21,10 @@ func TestTokenStore(t *testing.T) {
 	})
 
 	Convey("Test file store", t, func() {
-		os.Remove("data.db")
+		tmp := t.TempDir()
+		path := filepath.Join(tmp, "token.db")
 
-		store, err := store.NewFileTokenStore("data.db")
+		store, err := store.NewFileTokenStore(path)
 		So(err, ShouldBeNil)
 		testToken(store)
 	})

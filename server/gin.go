@@ -39,8 +39,15 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.POST("/iam/v1/public/login", s.HandleAPILoginGin)
 	r.POST("/iam/v1/public/users", s.HandleAPIRegisterUserGin)
 
+	// Namespace & Account management APIs (Gin-native)
+	r.POST("/iam/v1/admin/namespaces", s.handleCreateNamespace)
+	r.POST("/iam/v1/accounts/head", s.handleCreateHeadAccount)
+	r.POST("/iam/v1/accounts/headless", s.handleCreateHeadlessAccount)
+	r.POST("/iam/v1/accounts/:id/link", s.handleLinkAccount)
+	r.POST("/iam/v1/accounts/:id/unlink", s.handleUnlinkAccount)
+
 	// Admin: add permissions to an account (Gin-native)
-	r.POST("/iam/v1/admin/accounts/:accountId/permissions", s.HandleAPIAddAccountPermissionsGin)
+	// r.POST("/iam/v1/admin/accounts/:accountId/permissions", s.HandleAPIAddAccountPermissionsGin)
 
 	return r
 }
