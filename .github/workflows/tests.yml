@@ -40,12 +40,26 @@ jobs:
           done
           docker compose ps
 
+      - name: Build migrate CLI
+        working-directory: ${{ github.workspace }}
+        run: |
+          mkdir -p bin
+          go build -o bin/migrate ./migrate/cmd
+          chmod +x bin/migrate
+
+      - name: Run DB migrations via CLI
+        working-directory: ${{ github.workspace }}
+        env:
+          MIGRATE_ON_START: "1"
+          MIGRATE_DRIVER: postgres
+          MIGRATE_DSN: postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable
+          MIGRATE_CMD: up
+        run: |
+          ls -l bin
+          bin/migrate
+
       - name: Run Go tests
         env:
-          # Ensure tests use dockerized Postgres DSN
           USER_DB_DSN: postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable
-          MIGRATE_DSN: postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable
         run: |
-          go version
-          go test ./...  -count=1  
-
+          go test ./... -v -count=1
