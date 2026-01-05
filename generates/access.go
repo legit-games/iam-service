@@ -17,14 +17,27 @@ func NewAccessGenerate() *AccessGenerate {
 }
 
 // AccessGenerate generate the access token
-type AccessGenerate struct {
-}
+type AccessGenerate struct{}
 
 // Token based on the UUID generated token
 func (ag *AccessGenerate) Token(ctx context.Context, data *oauth2.GenerateBasic, isGenRefresh bool) (string, string, error) {
 	buf := bytes.NewBufferString(data.Client.GetID())
 	buf.WriteString(data.UserID)
 	buf.WriteString(strconv.FormatInt(data.CreateAt.UnixNano(), 10))
+
+	// If client credentials flow (no user), copy client permissions into extension
+	if data.UserID == "" {
+		if et, ok := data.TokenInfo.(oauth2.ExtendableTokenInfo); ok {
+			ext := et.GetExtension()
+			if permsGetter, ok2 := any(data.Client).(interface{ GetPermissions() []string }); ok2 {
+				perms := permsGetter.GetPermissions()
+				for _, p := range perms {
+					ext.Add("permissions", p)
+				}
+				et.SetExtension(ext)
+			}
+		}
+	}
 
 	access := base64.URLEncoding.EncodeToString([]byte(uuid.NewMD5(uuid.Must(uuid.NewRandom()), buf.Bytes()).String()))
 	access = strings.ToUpper(strings.TrimRight(access, "="))

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	perm "github.com/go-oauth2/oauth2/v4/permission"
 	"github.com/go-session/session/v3"
 )
 
@@ -49,11 +50,19 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.POST("/iam/v1/public/users", s.HandleAPIRegisterUserGin)
 
 	// Namespace & Account management APIs (Gin-native)
-	r.POST("/iam/v1/admin/namespaces", s.handleCreateNamespace)
-	r.POST("/iam/v1/accounts/head", s.handleCreateHeadAccount)
-	r.POST("/iam/v1/accounts/headless", s.handleCreateHeadlessAccount)
-	r.POST("/iam/v1/accounts/:id/link", s.handleLinkAccount)
-	r.POST("/iam/v1/accounts/:id/unlink", s.handleUnlinkAccount)
+	r.POST("/iam/v1/admin/namespaces", RequireAuthorization("ADMIN:NAMESPACE:*", perm.CREATE, nil), s.handleCreateNamespace)
+	r.POST("/iam/v1/accounts/head", RequireAuthorization("ADMIN:NAMESPACE:*:USER", perm.CREATE, nil), s.handleCreateHeadAccount)
+	r.POST("/iam/v1/accounts/headless", RequireAuthorization("ADMIN:NAMESPACE:*:USER", perm.CREATE, nil), s.handleCreateHeadlessAccount)
+	r.POST("/iam/v1/accounts/:id/link", RequireAuthorization("ADMIN:NAMESPACE:*:USER", perm.UPDATE, nil), s.handleLinkAccount)
+	r.POST("/iam/v1/accounts/:id/unlink", RequireAuthorization("ADMIN:NAMESPACE:*:USER", perm.UPDATE, nil), s.handleUnlinkAccount)
+
+	// Admin: client upsert and permissions
+	r.POST("/iam/v1/admin/clients", RequireAuthorization("ADMIN:NAMESPACE:*:CLIENT", perm.CREATE, nil), s.HandleUpsertClientGin)
+	r.PUT("/iam/v1/admin/clients/:id/permissions", RequireAuthorization("ADMIN:NAMESPACE:*:CLIENT", perm.UPDATE, nil), s.HandleUpdateClientPermissionsGin)
+	// Admin: client read/list/delete
+	r.GET("/iam/v1/admin/clients/:id", RequireAuthorization("ADMIN:NAMESPACE:*:CLIENT", perm.READ, nil), s.HandleGetClientGin)
+	r.GET("/iam/v1/admin/clients", RequireAuthorization("ADMIN:NAMESPACE:*:CLIENT", perm.READ, nil), s.HandleListClientsGin)
+	r.DELETE("/iam/v1/admin/clients/:id", RequireAuthorization("ADMIN:NAMESPACE:*:CLIENT", perm.DELETE, nil), s.HandleDeleteClientGin)
 
 	// Admin: add permissions to an account (Gin-native)
 	// r.POST("/iam/v1/admin/accounts/:accountId/permissions", s.HandleAPIAddAccountPermissionsGin)

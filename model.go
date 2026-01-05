@@ -13,6 +13,8 @@ type (
 		GetDomain() string
 		IsPublic() bool
 		GetUserID() string
+		// Optional: client-level permissions for client_credentials tokens
+		GetPermissions() []string
 	}
 
 	// ClientPasswordVerifier the password handler interface
