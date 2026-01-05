@@ -18,9 +18,9 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.Use(gin.Recovery())
 	r.Use(parseFormMiddleware())
 
-	// /oauth/authorize with session form restore middleware (keep standard handler)
-	r.GET("/oauth/authorize", restoreAuthorizeFormMiddleware(), ginFrom(s.HandleAuthorizeRequest))
-	r.POST("/oauth/authorize", restoreAuthorizeFormMiddleware(), ginFrom(s.HandleAuthorizeRequest))
+	// /oauth/authorize with session form restore middleware (disable implicit response_type=token)
+	r.GET("/oauth/authorize", blockImplicitMiddleware(), restoreAuthorizeFormMiddleware(), ginFrom(s.HandleAuthorizeRequest))
+	r.POST("/oauth/authorize", blockImplicitMiddleware(), restoreAuthorizeFormMiddleware(), ginFrom(s.HandleAuthorizeRequest))
 
 	// Token endpoint(s) (keep standard handler)
 	r.POST("/oauth/token", ginFrom(s.HandleTokenRequest))
@@ -111,6 +111,22 @@ func restoreAuthorizeFormMiddleware() gin.HandlerFunc {
 				store.Delete("ReturnUri")
 				_ = store.Save()
 			}
+		}
+		c.Next()
+	}
+}
+
+// blockImplicitMiddleware rejects OAuth 2.0 Implicit Flow (response_type=token) to comply with OAuth 2.1.
+func blockImplicitMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		rt := c.Query("response_type")
+		if strings.EqualFold(rt, "token") {
+			c.Header("Content-Type", "application/json;charset=UTF-8")
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"error":             "unsupported_response_type",
+				"error_description": "Implicit flow is disabled. Use Authorization Code with PKCE.",
+			})
+			return
 		}
 		c.Next()
 	}

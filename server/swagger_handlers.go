@@ -142,6 +142,18 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 			}
 		}
 	}
+	// Annotate authorize path: Implicit disabled
+	if p, ok := paths["/oauth/authorize"].(map[string]interface{}); ok {
+		// ensure GET description mentions implicit disabled
+		if get, ok2 := p["get"].(map[string]interface{}); ok2 {
+			get["summary"] = "Authorize (Authorization Code + PKCE)"
+			get["description"] = "Implicit flow (response_type=token) is disabled. Use Authorization Code with PKCE and state."
+		}
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["summary"] = "Authorize (Authorization Code + PKCE)"
+			post["description"] = "Implicit flow (response_type=token) is disabled. Use Authorization Code with PKCE and state."
+		}
+	}
 	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
 	return json.NewEncoder(w).Encode(spec)
@@ -295,6 +307,18 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 					}
 				}
 			}
+		}
+	}
+	// Annotate authorize path: Implicit disabled
+	if p, ok := paths["/oauth/authorize"].(map[string]interface{}); ok {
+		// ensure GET description mentions implicit disabled
+		if get, ok2 := p["get"].(map[string]interface{}); ok2 {
+			get["summary"] = "Authorize (Authorization Code + PKCE)"
+			get["description"] = "Implicit flow (response_type=token) is disabled. Use Authorization Code with PKCE and state."
+		}
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["summary"] = "Authorize (Authorization Code + PKCE)"
+			post["description"] = "Implicit flow (response_type=token) is disabled. Use Authorization Code with PKCE and state."
 		}
 	}
 	c.Header("Content-Type", "application/json;charset=UTF-8")

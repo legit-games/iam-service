@@ -256,6 +256,29 @@ func TestImplicit(t *testing.T) {
 		Expect().Status(http.StatusOK)
 }
 
+func TestImplicitFlowDisabled(t *testing.T) {
+	// setup manager and server
+	m := manage.NewDefaultManager()
+	m.MustTokenStorage(store.NewMemoryTokenStore())
+	s := NewDefaultServer(m)
+	// build gin engine with our server
+	r := NewGinEngine(s)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	e := httpexpect.New(t, srv.URL)
+	// call authorize with response_type=token (implicit) -> expect 400
+	obj := e.GET("/oauth/authorize").
+		WithQuery("response_type", "token").
+		WithQuery("client_id", "dummy").
+		WithQuery("redirect_uri", "http://localhost/callback").
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object()
+	obj.Value("error").String().Equal("unsupported_response_type")
+	obj.Value("error_description").String().Contains("Implicit flow is disabled")
+}
+
 func TestPasswordCredentials(t *testing.T) {
 	tsrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		testServer(t, w, r)
