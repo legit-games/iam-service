@@ -21,6 +21,23 @@ type Config struct {
 	// OIDC settings
 	OIDCEnabled bool
 	Issuer      string // issuer URL for ID tokens and discovery
+	// Refresh rotation settings (operator-configurable)
+	RefreshRotation RefreshRotationConfig
+}
+
+// RefreshRotationConfig maps to manage.RefreshingConfig.
+type RefreshRotationConfig struct {
+	// Whether to issue a new refresh token during refresh
+	GenerateNew bool
+	// Whether to reset refresh token create time on rotation
+	ResetTime bool
+	// Whether to remove old access token on refresh
+	RemoveOldAccess bool
+	// Whether to remove old refresh token on refresh (enforces reuse detection)
+	RemoveOldRefresh bool
+	// Optional overrides for exp durations
+	AccessExpOverride  time.Duration
+	RefreshExpOverride time.Duration
 }
 
 // NewConfig create to configuration instance
@@ -41,6 +58,12 @@ func NewConfig() *Config {
 		ForcePKCE:   true,
 		OIDCEnabled: true,
 		Issuer:      "http://localhost", // can be overridden by deployment config
+		RefreshRotation: RefreshRotationConfig{
+			GenerateNew:      true,
+			ResetTime:        true,
+			RemoveOldAccess:  true,
+			RemoveOldRefresh: true,
+		},
 	}
 }
 

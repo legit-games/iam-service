@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gavv/httpexpect"
 	"github.com/go-oauth2/oauth2/v4"
@@ -667,5 +668,58 @@ func TestForcePKCE_DeniesMissingCodeVerifier(t *testing.T) {
 	_ = s.HandleTokenRequest(tw, tr)
 	if tw.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for missing code_verifier, got %d", tw.Code)
+	}
+}
+
+func TestRefreshTokenRotation_ReuseDetection(t *testing.T) {
+	// Setup server with explicit token store
+	m := manage.NewDefaultManager()
+	m.SetAuthorizeCodeTokenCfg(manage.DefaultAuthorizeCodeTokenCfg)
+	m.MapAccessGenerate(generates.NewAccessGenerate())
+	ts, _ := store.NewMemoryTokenStore()
+	m.MapTokenStorage(ts)
+	cs := store.NewClientStore()
+	cs.Set("clientB", &models.Client{ID: "clientB", Secret: "secretB", Domain: "http://localhost"})
+	m.MapClientStorage(cs)
+	s := NewDefaultServer(m)
+	s.SetClientInfoHandler(ClientFormHandler)
+
+	// Insert an initial token with a refresh into the store
+	ti := models.NewToken()
+	ti.SetClientID("clientB")
+	ti.SetAccess("accessX")
+	ti.SetAccessCreateAt(time.Now())
+	ti.SetAccessExpiresIn(time.Hour)
+	ti.SetRefresh("refreshX")
+	ti.SetRefreshCreateAt(time.Now())
+	ti.SetRefreshExpiresIn(time.Hour)
+	_ = ts.Create(context.Background(), ti)
+
+	refresh := "refreshX"
+	// First use of refresh should succeed (rotation occurs)
+	r2 := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(url.Values{
+		"grant_type":    {"refresh_token"},
+		"client_id":     {"clientB"},
+		"client_secret": {"secretB"},
+		"refresh_token": {refresh},
+	}.Encode()))
+	r2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w2 := httptest.NewRecorder()
+	_ = s.HandleTokenRequest(w2, r2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("first refresh expected 200, got %d", w2.Code)
+	}
+	// Second use of the same refresh should be rejected due to reuse detection (expect 401 invalid_grant)
+	r3 := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(url.Values{
+		"grant_type":    {"refresh_token"},
+		"client_id":     {"clientB"},
+		"client_secret": {"secretB"},
+		"refresh_token": {refresh},
+	}.Encode()))
+	r3.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w3 := httptest.NewRecorder()
+	_ = s.HandleTokenRequest(w3, r3)
+	if w3.Code == http.StatusOK {
+		t.Fatalf("expected reuse detection to fail, got 200")
 	}
 }

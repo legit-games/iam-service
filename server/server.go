@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-oauth2/oauth2/v4"
 	"github.com/go-oauth2/oauth2/v4/errors"
+	"github.com/go-oauth2/oauth2/v4/manage"
 	_ "github.com/lib/pq"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -72,6 +73,24 @@ func NewServer(cfg *Config, manager oauth2.Manager) *Server {
 		s.userStore = store.NewUserStore(db)
 	}
 	// gin routes will be registered via NewGinEngine
+
+	// Apply operator-configured refresh rotation to manager
+	if m, ok := manager.(*manage.Manager); ok && cfg != nil {
+		rc := &manage.RefreshingConfig{
+			IsGenerateRefresh:  cfg.RefreshRotation.GenerateNew,
+			IsResetRefreshTime: cfg.RefreshRotation.ResetTime,
+			IsRemoveAccess:     cfg.RefreshRotation.RemoveOldAccess,
+			IsRemoveRefreshing: cfg.RefreshRotation.RemoveOldRefresh,
+		}
+		if cfg.RefreshRotation.AccessExpOverride > 0 {
+			rc.AccessTokenExp = cfg.RefreshRotation.AccessExpOverride
+		}
+		if cfg.RefreshRotation.RefreshExpOverride > 0 {
+			rc.RefreshTokenExp = cfg.RefreshRotation.RefreshExpOverride
+		}
+		m.SetRefreshTokenCfg(rc)
+	}
+
 	return s
 }
 
