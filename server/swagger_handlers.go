@@ -64,7 +64,7 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 				},
 				"get": map[string]interface{}{
 					"summary":     "List clients in a namespace",
-					"description": "Requires ADMIN:NAMESPACE:{ns}:CLIENT_READ.",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:CLIENT_READ. Note: Namespace name must be uppercase A–Z only.",
 					"parameters": []map[string]interface{}{
 						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
 						{"name": "offset", "in": "query", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
@@ -76,7 +76,7 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 			"/iam/v1/admin/namespaces/{ns}/clients/{id}/permissions": map[string]interface{}{
 				"put": map[string]interface{}{
 					"summary":     "Replace client permissions in a namespace",
-					"description": "Requires ADMIN:NAMESPACE:{ns}:CLIENT_UPDATE.",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:CLIENT_UPDATE. Note: Namespace name must be uppercase A–Z only.",
 					"parameters": []map[string]interface{}{
 						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
 						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
@@ -102,6 +102,44 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 		}
 		paths["/oauth/userinfo"] = map[string]interface{}{
 			"get": map[string]interface{}{"summary": "OIDC UserInfo", "responses": map[string]interface{}{"200": map[string]interface{}{"description": "User claims"}, "401": map[string]interface{}{"description": "Unauthorized"}}},
+		}
+	}
+	// After building spec, augment parameter descriptions for namespace routes
+	paths := spec["paths"].(map[string]interface{})
+	if p, ok := paths["/iam/v1/admin/namespaces/{ns}/clients"].(map[string]interface{}); ok {
+		// annotate GET
+		if get, ok2 := p["get"].(map[string]interface{}); ok2 {
+			get["description"] = "Requires ADMIN:NAMESPACE:{ns}:CLIENT_READ. Note: Namespace name must be uppercase A–Z only."
+			if params, ok3 := get["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
+					}
+				}
+			}
+		}
+		// annotate POST
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["description"] = "Requires ADMIN:NAMESPACE:{ns}:CLIENT_CREATE. Upserts client with permissions. Note: Namespace name must be uppercase A–Z only."
+			if params, ok3 := post["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
+					}
+				}
+			}
+		}
+	}
+	if p, ok := paths["/iam/v1/admin/namespaces/{ns}/clients/{id}/permissions"].(map[string]interface{}); ok {
+		if put, ok2 := p["put"].(map[string]interface{}); ok2 {
+			put["description"] = "Requires ADMIN:NAMESPACE:{ns}:CLIENT_UPDATE. Note: Namespace name must be uppercase A–Z only."
+			if params, ok3 := put["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
+					}
+				}
+			}
 		}
 	}
 	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
@@ -183,7 +221,7 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 				},
 				"get": map[string]interface{}{
 					"summary":     "List clients in a namespace",
-					"description": "Requires ADMIN:NAMESPACE:{ns}:CLIENT_READ.",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:CLIENT_READ. Note: Namespace name must be uppercase A–Z only.",
 					"parameters": []map[string]interface{}{
 						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
 						{"name": "offset", "in": "query", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
@@ -195,7 +233,7 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 			"/iam/v1/admin/namespaces/{ns}/clients/{id}/permissions": map[string]interface{}{
 				"put": map[string]interface{}{
 					"summary":     "Replace client permissions in a namespace",
-					"description": "Requires ADMIN:NAMESPACE:{ns}:CLIENT_UPDATE.",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:CLIENT_UPDATE. Note: Namespace name must be uppercase A–Z only.",
 					"parameters": []map[string]interface{}{
 						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
 						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
@@ -220,6 +258,43 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 		}
 		paths["/oauth/userinfo"] = map[string]interface{}{
 			"get": map[string]interface{}{"summary": "OIDC UserInfo", "responses": map[string]interface{}{"200": map[string]interface{}{"description": "User claims"}, "401": map[string]interface{}{"description": "Unauthorized"}}},
+		}
+	}
+	paths := spec["paths"].(map[string]interface{})
+	if p, ok := paths["/iam/v1/admin/namespaces/{ns}/clients"].(map[string]interface{}); ok {
+		// annotate GET
+		if get, ok2 := p["get"].(map[string]interface{}); ok2 {
+			get["description"] = "Requires ADMIN:NAMESPACE:{ns}:CLIENT_READ. Note: Namespace name must be uppercase A–Z only."
+			if params, ok3 := get["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
+					}
+				}
+			}
+		}
+		// annotate POST
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["description"] = "Requires ADMIN:NAMESPACE:{ns}:CLIENT_CREATE. Upserts client with permissions. Note: Namespace name must be uppercase A–Z only."
+			if params, ok3 := post["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
+					}
+				}
+			}
+		}
+	}
+	if p, ok := paths["/iam/v1/admin/namespaces/{ns}/clients/{id}/permissions"].(map[string]interface{}); ok {
+		if put, ok2 := p["put"].(map[string]interface{}); ok2 {
+			put["description"] = "Requires ADMIN:NAMESPACE:{ns}:CLIENT_UPDATE. Note: Namespace name must be uppercase A–Z only."
+			if params, ok3 := put["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
+					}
+				}
+			}
 		}
 	}
 	c.Header("Content-Type", "application/json;charset=UTF-8")
