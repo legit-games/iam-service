@@ -65,6 +65,28 @@ type UserBanHistory struct {
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
+// AccountBan represents a ban entry for an account (affects all users under the account).
+type AccountBan struct {
+	ID        string    `json:"id" db:"id"`
+	AccountID string    `json:"account_id" db:"account_id"`
+	Type      BanType   `json:"type" db:"type"`
+	Reason    string    `json:"reason" db:"reason"`
+	Until     time.Time `json:"until" db:"until"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+}
+
+// AccountBanHistory stores account ban/unban audit history.
+type AccountBanHistory struct {
+	ID        string    `json:"id" db:"id"`
+	AccountID string    `json:"account_id" db:"account_id"`
+	Action    string    `json:"action" db:"action"` // BAN or UNBAN
+	Type      BanType   `json:"type" db:"type"`
+	Reason    string    `json:"reason" db:"reason"`
+	Until     time.Time `json:"until" db:"until"`
+	ActorID   string    `json:"actor_id" db:"actor_id"` // who performed the ban
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+}
+
 // ReevaluateAccountType determines the account type from a set of users.
 func ReevaluateAccountType(users []User) AccountType {
 	hasHead := false

@@ -121,18 +121,23 @@ func (s *UserStore) BanUser(ctx context.Context, userID, namespace string, btype
 	if ns == "" {
 		return gorm.ErrInvalidData
 	}
+	// Normalize type to uppercase to match query filters
+	banTypeStr := strings.ToUpper(string(btype))
 	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		id := models.LegitID()
 		var untilVal interface{}
 		if until != nil {
-			untilVal = *until
+			uv := until.UTC()
+			untilVal = uv
 		} else {
 			untilVal = nil
 		}
-		if err := tx.Exec(`INSERT INTO user_bans(id, user_id, namespace, type, reason, until) VALUES(?,?,?,?,?,?)`, id, userID, ns, string(btype), reason, untilVal).Error; err != nil {
+		// Use UTC for created_at
+		createdAt := time.Now().UTC()
+		if err := tx.Exec(`INSERT INTO user_bans(id, user_id, namespace, type, reason, until, created_at) VALUES(?,?,?,?,?,?,?)`, id, userID, ns, banTypeStr, reason, untilVal, createdAt).Error; err != nil {
 			return err
 		}
-		if err := tx.Exec(`INSERT INTO user_ban_history(id, user_id, namespace, action, type, reason, until, actor_id, created_at) VALUES(?,?,?,?,?,?,?,?,?)`, models.LegitID(), userID, ns, "BAN", string(btype), reason, untilVal, actorID, time.Now()).Error; err != nil {
+		if err := tx.Exec(`INSERT INTO user_ban_history(id, user_id, namespace, action, type, reason, until, actor_id, created_at) VALUES(?,?,?,?,?,?,?,?,?)`, models.LegitID(), userID, ns, "BAN", banTypeStr, reason, untilVal, actorID, createdAt).Error; err != nil {
 			return err
 		}
 		return nil
@@ -146,10 +151,11 @@ func (s *UserStore) UnbanUser(ctx context.Context, userID, namespace string, rea
 		return gorm.ErrInvalidData
 	}
 	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		createdAt := time.Now().UTC()
 		if err := tx.Exec(`DELETE FROM user_bans WHERE user_id=? AND namespace=?`, userID, ns).Error; err != nil {
 			return err
 		}
-		if err := tx.Exec(`INSERT INTO user_ban_history(id, user_id, namespace, action, reason, actor_id, created_at) VALUES(?,?,?,?,?,?,?)`, models.LegitID(), userID, ns, "UNBAN", reason, actorID, time.Now()).Error; err != nil {
+		if err := tx.Exec(`INSERT INTO user_ban_history(id, user_id, namespace, action, reason, actor_id, created_at) VALUES(?,?,?,?,?,?,?)`, models.LegitID(), userID, ns, "UNBAN", reason, actorID, createdAt).Error; err != nil {
 			return err
 		}
 		return nil
@@ -163,9 +169,95 @@ func (s *UserStore) IsUserBanned(ctx context.Context, userID, namespace string) 
 		return false, nil
 	}
 	var count int64
-	err := s.DB.WithContext(ctx).Raw(`SELECT COUNT(1) FROM user_bans WHERE user_id=? AND namespace=? AND (type='PERMANENT' OR (type='TIMED' AND (until IS NULL OR until>NOW())))`, userID, ns).Scan(&count).Error
+	err := s.DB.WithContext(ctx).Raw(`SELECT COUNT(1) FROM user_bans WHERE user_id=$1 AND namespace=$2 AND (type='PERMANENT' OR (type='TIMED' AND (until IS NULL OR until AT TIME ZONE 'UTC' >= NOW() AT TIME ZONE 'UTC')))`, userID, ns).Scan(&count).Error
 	if err != nil {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// BanAccount applies a ban to an entire account, affecting all users under that account.
+func (s *UserStore) BanAccount(ctx context.Context, accountID string, btype models.BanType, reason string, until *time.Time, actorID string) error {
+	// Normalize type to uppercase to match query filters
+	banTypeStr := strings.ToUpper(string(btype))
+	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		id := models.LegitID()
+		var untilVal interface{}
+		if until != nil {
+			uv := until.UTC()
+			untilVal = uv
+		} else {
+			untilVal = nil
+		}
+		createdAt := time.Now().UTC()
+		if err := tx.Exec(`INSERT INTO account_bans(id, account_id, type, reason, until, created_at) VALUES(?,?,?,?,?,?)`, id, accountID, banTypeStr, reason, untilVal, createdAt).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`INSERT INTO account_ban_history(id, account_id, action, type, reason, until, actor_id, created_at) VALUES(?,?,?,?,?,?,?,?)`, models.LegitID(), accountID, "BAN", banTypeStr, reason, untilVal, actorID, createdAt).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+// UnbanAccount removes ban entries for an account and logs history.
+func (s *UserStore) UnbanAccount(ctx context.Context, accountID string, reason string, actorID string) error {
+	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		createdAt := time.Now().UTC()
+		if err := tx.Exec(`DELETE FROM account_bans WHERE account_id=?`, accountID).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`INSERT INTO account_ban_history(id, account_id, action, reason, actor_id, created_at) VALUES(?,?,?,?,?,?)`, models.LegitID(), accountID, "UNBAN", reason, actorID, createdAt).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+// IsAccountBanned returns true if the account is currently banned.
+func (s *UserStore) IsAccountBanned(ctx context.Context, accountID string) (bool, error) {
+	var count int64
+	err := s.DB.WithContext(ctx).Raw(`SELECT COUNT(1) FROM account_bans WHERE account_id=$1 AND (type='PERMANENT' OR (type='TIMED' AND (until IS NULL OR until AT TIME ZONE 'UTC' >= NOW() AT TIME ZONE 'UTC')))`, accountID).Scan(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// IsUserBannedByAccount returns true if the user is banned either directly or through account ban.
+func (s *UserStore) IsUserBannedByAccount(ctx context.Context, userID, namespace string) (bool, error) {
+	ns := strings.ToUpper(strings.TrimSpace(namespace))
+	if ns == "" {
+		return false, nil
+	}
+
+	// Check direct user ban first
+	directBan, err := s.IsUserBanned(ctx, userID, namespace)
+	if err != nil || directBan {
+		return directBan, err
+	}
+
+	// Check account ban
+	var accountID string
+	row := s.DB.WithContext(ctx).Raw(`SELECT account_id FROM users WHERE id=?`, userID).Row()
+	if err := row.Scan(&accountID); err != nil {
+		return false, err
+	}
+
+	return s.IsAccountBanned(ctx, accountID)
+}
+
+// ListUserBans returns all bans for a user in a namespace
+func (s *UserStore) ListUserBans(ctx context.Context, userID, namespace string) ([]models.UserBan, error) {
+	ns := strings.ToUpper(strings.TrimSpace(namespace))
+	var bans []models.UserBan
+	err := s.DB.WithContext(ctx).Where("user_id = ? AND namespace = ?", userID, ns).Order("created_at DESC").Find(&bans).Error
+	return bans, err
+}
+
+// ListAccountBans returns all bans for an account
+func (s *UserStore) ListAccountBans(ctx context.Context, accountID string) ([]models.AccountBan, error) {
+	var bans []models.AccountBan
+	err := s.DB.WithContext(ctx).Where("account_id = ?", accountID).Order("created_at DESC").Find(&bans).Error
+	return bans, err
 }

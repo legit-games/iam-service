@@ -146,6 +146,51 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Bans list"}, "401": map[string]interface{}{"description": "Unauthorized"}},
 				},
 			},
+			// Account-level ban endpoints
+			"/iam/v1/admin/accounts/{id}/ban": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Ban an account (affects all users under the account)",
+					"description": "Requires ADMIN:NAMESPACE:*:ACCOUNT UPDATE. Bans an entire account with PERMANENT or TIMED ban. Actor is derived from the caller's access token.",
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"type":   map[string]interface{}{"type": "string", "enum": []string{"PERMANENT", "TIMED"}},
+							"reason": map[string]interface{}{"type": "string"},
+							"until":  map[string]interface{}{"type": "string", "format": "date-time", "description": "Required when type=TIMED"},
+						}}}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Account banned"}, "400": map[string]interface{}{"description": "Invalid request"}, "401": map[string]interface{}{"description": "Unauthorized"}},
+				},
+			},
+			"/iam/v1/admin/accounts/{id}/unban": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Unban an account",
+					"description": "Requires ADMIN:NAMESPACE:*:ACCOUNT UPDATE. Removes an account's ban. Actor is derived from the caller's access token.",
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"reason": map[string]interface{}{"type": "string"},
+						}}}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Account unbanned"}, "400": map[string]interface{}{"description": "Invalid request"}, "401": map[string]interface{}{"description": "Unauthorized"}},
+				},
+			},
+			"/iam/v1/admin/accounts/{id}/bans": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List bans for an account",
+					"description": "Requires ADMIN:NAMESPACE:*:ACCOUNT READ. Returns current and historical bans for the account.",
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Account bans list"}, "401": map[string]interface{}{"description": "Unauthorized"}},
+				},
+			},
 		},
 		"components": map[string]interface{}{"securitySchemes": map[string]interface{}{"basicAuth": map[string]interface{}{"type": "http", "scheme": "basic"}}},
 	}
@@ -232,7 +277,18 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 			}
 		}
 	}
-	// ...existing code...
+	// Annotate authorize path: Implicit disabled
+	if p, ok := paths["/oauth/authorize"].(map[string]interface{}); ok {
+		// ensure GET description mentions implicit disabled
+		if get, ok2 := p["get"].(map[string]interface{}); ok2 {
+			get["summary"] = "Authorize (Authorization Code + PKCE)"
+			get["description"] = "Implicit flow (response_type=token) is disabled. Use Authorization Code with PKCE and state."
+		}
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["summary"] = "Authorize (Authorization Code + PKCE)"
+			post["description"] = "Implicit flow (response_type=token) is disabled. Use Authorization Code with PKCE and state."
+		}
+	}
 	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
 	return json.NewEncoder(w).Encode(spec)
@@ -394,6 +450,51 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Bans list"}, "401": map[string]interface{}{"description": "Unauthorized"}},
 				},
 			},
+			// Account-level ban endpoints
+			"/iam/v1/admin/accounts/{id}/ban": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Ban an account (affects all users under the account)",
+					"description": "Requires ADMIN:NAMESPACE:*:ACCOUNT UPDATE. Bans an entire account with PERMANENT or TIMED ban. Actor is derived from the caller's access token.",
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"type":   map[string]interface{}{"type": "string", "enum": []string{"PERMANENT", "TIMED"}},
+							"reason": map[string]interface{}{"type": "string"},
+							"until":  map[string]interface{}{"type": "string", "format": "date-time", "description": "Required when type=TIMED"},
+						}}}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Account banned"}, "400": map[string]interface{}{"description": "Invalid request"}, "401": map[string]interface{}{"description": "Unauthorized"}},
+				},
+			},
+			"/iam/v1/admin/accounts/{id}/unban": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Unban an account",
+					"description": "Requires ADMIN:NAMESPACE:*:ACCOUNT UPDATE. Removes an account's ban. Actor is derived from the caller's access token.",
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"reason": map[string]interface{}{"type": "string"},
+						}}}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Account unbanned"}, "400": map[string]interface{}{"description": "Invalid request"}, "401": map[string]interface{}{"description": "Unauthorized"}},
+				},
+			},
+			"/iam/v1/admin/accounts/{id}/bans": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List bans for an account",
+					"description": "Requires ADMIN:NAMESPACE:*:ACCOUNT READ. Returns current and historical bans for the account.",
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Account bans list"}, "401": map[string]interface{}{"description": "Unauthorized"}},
+				},
+			},
 		},
 		"components": map[string]interface{}{"securitySchemes": map[string]interface{}{"basicAuth": map[string]interface{}{"type": "http", "scheme": "basic"}}},
 	}
@@ -465,6 +566,38 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 	if p, ok := paths["/iam/v1/admin/namespaces/{ns}/users/{id}/unban"].(map[string]interface{}); ok {
 		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
 			post["description"] = "Requires ADMIN:NAMESPACE:{ns}:USER UPDATE. Removes a user's ban in the namespace. Actor is derived from the caller's access token."
+			if rb, ok3 := post["requestBody"].(map[string]interface{}); ok3 {
+				if content, ok4 := rb["content"].(map[string]interface{}); ok4 {
+					if appjson, ok5 := content["application/json"].(map[string]interface{}); ok5 {
+						if schema, ok6 := appjson["schema"].(map[string]interface{}); ok6 {
+							if props, ok7 := schema["properties"].(map[string]interface{}); ok7 {
+								delete(props, "actor_id")
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if p, ok := paths["/iam/v1/admin/accounts/{id}/ban"].(map[string]interface{}); ok {
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["description"] = "Requires ADMIN:NAMESPACE:*:ACCOUNT UPDATE. Bans an entire account with PERMANENT or TIMED ban. Actor is derived from the caller's access token."
+			if rb, ok3 := post["requestBody"].(map[string]interface{}); ok3 {
+				if content, ok4 := rb["content"].(map[string]interface{}); ok4 {
+					if appjson, ok5 := content["application/json"].(map[string]interface{}); ok5 {
+						if schema, ok6 := appjson["schema"].(map[string]interface{}); ok6 {
+							if props, ok7 := schema["properties"].(map[string]interface{}); ok7 {
+								delete(props, "actor_id")
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if p, ok := paths["/iam/v1/admin/accounts/{id}/unban"].(map[string]interface{}); ok {
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["description"] = "Requires ADMIN:NAMESPACE:*:ACCOUNT UPDATE. Removes an account's ban. Actor is derived from the caller's access token."
 			if rb, ok3 := post["requestBody"].(map[string]interface{}); ok3 {
 				if content, ok4 := rb["content"].(map[string]interface{}); ok4 {
 					if appjson, ok5 := content["application/json"].(map[string]interface{}); ok5 {

@@ -74,6 +74,10 @@ func NewGinEngine(s *Server) *gin.Engine {
 	// Admin: list bans
 	r.GET("/iam/v1/admin/namespaces/:ns/users/:id/bans", RequireAuthorization("ADMIN:NAMESPACE:{ns}:USER", perm.READ, nil), s.HandleListUserBansGin)
 	r.GET("/iam/v1/admin/namespaces/:ns/bans", RequireAuthorization("ADMIN:NAMESPACE:{ns}:USER", perm.READ, nil), s.HandleListNamespaceBansGin)
+	// Admin: account-level ban/unban
+	r.POST("/iam/v1/admin/accounts/:id/ban", RequireAuthorization("ADMIN:NAMESPACE:*:ACCOUNT", perm.UPDATE, nil), s.HandleBanAccountGin)
+	r.POST("/iam/v1/admin/accounts/:id/unban", RequireAuthorization("ADMIN:NAMESPACE:*:ACCOUNT", perm.UPDATE, nil), s.HandleUnbanAccountGin)
+	r.GET("/iam/v1/admin/accounts/:id/bans", RequireAuthorization("ADMIN:NAMESPACE:*:ACCOUNT", perm.READ, nil), s.HandleListAccountBansGin)
 
 	return r
 }
