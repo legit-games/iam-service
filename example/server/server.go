@@ -40,7 +40,7 @@ func init() {
 	flag.BoolVar(&dumpvar, "d", true, "Dump requests and responses")
 	flag.StringVar(&idvar, "i", "222222", "The client id being passed in")
 	flag.StringVar(&secretvar, "s", "22222222", "The client secret being passed in")
-	flag.StringVar(&domainvar, "r", "http://localhost:9094", "The domain of the redirect url")
+	flag.StringVar(&domainvar, "r", "http://localhost:9098", "The domain of the redirect url")
 	flag.IntVar(&portvar, "p", 9096, "the base port for the server")
 }
 
@@ -86,6 +86,8 @@ func main() {
 		Domain: domainvar,
 	})
 	manager.MapClientStorage(clientStore)
+
+	log.Printf("Registered OAuth2 client: id=%s redirect_domain=%s", idvar, domainvar)
 
 	srv := server.NewServer(server.NewConfig(), manager)
 
