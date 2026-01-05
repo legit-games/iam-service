@@ -240,6 +240,28 @@ func (s *Server) ValidationTokenRequest(r *http.Request) (oauth2.GrantType, *oau
 		return "", nil, err
 	}
 
+	// Load client and enforce confidential/public policies
+	cli, err := s.Manager.GetClient(r.Context(), clientID)
+	if err != nil {
+		return "", nil, err
+	}
+	isPublic := false
+	if pub, ok := cli.(interface{ IsPublic() bool }); ok {
+		isPublic = pub.IsPublic()
+	}
+	// Confidential: require client_secret (Basic or form)
+	if !isPublic {
+		if clientSecret == "" && len(cli.GetSecret()) > 0 {
+			return "", nil, errors.ErrInvalidClient
+		}
+	} else {
+		// Public: must be secretless; restrict allowed grants to Authorization Code and Refresh
+		// Ignore provided secret for public; if provided but client has non-empty secret registered, still treat as public
+		if gt == oauth2.ClientCredentials || gt == oauth2.PasswordCredentials {
+			return "", nil, errors.ErrUnauthorizedClient
+		}
+	}
+
 	tgr := &oauth2.TokenGenerateRequest{ClientID: clientID, ClientSecret: clientSecret, Request: r}
 
 	switch gt {
@@ -257,6 +279,7 @@ func (s *Server) ValidationTokenRequest(r *http.Request) (oauth2.GrantType, *oau
 		if d := cli.GetDomain(); d != "" && !(tgr.RedirectURI == d || strings.HasPrefix(tgr.RedirectURI, strings.TrimRight(d, "/")+"/")) {
 			return "", nil, errors.ErrInvalidRedirectURI
 		}
+		// PKCE enforcement already handled by s.Config.ForcePKCE and code_verifier check below
 		tgr.CodeVerifier = r.FormValue("code_verifier")
 		if s.Config.ForcePKCE && tgr.CodeVerifier == "" {
 			return "", nil, errors.ErrInvalidRequest

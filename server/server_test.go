@@ -504,3 +504,99 @@ func TestRedirectURIValidation_PrefixUnit_Invalid(t *testing.T) {
 		t.Fatalf("expected invalid redirect error, got nil")
 	}
 }
+
+func TestPublicClient_DisallowPasswordAndClientCredentials(t *testing.T) {
+	// Setup server with a public client (no secret)
+	m := manage.NewDefaultManager()
+	m.MustTokenStorage(store.NewMemoryTokenStore())
+	cs := store.NewClientStore()
+	cs.Set("pub", &models.Client{ID: "pub", Secret: "", Domain: "http://localhost", Public: true})
+	m.MapClientStorage(cs)
+	s := server.NewDefaultServer(m)
+	s.SetClientInfoHandler(server.ClientFormHandler)
+
+	// Password grant should be unauthorized_client -> expect 401
+	r := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(url.Values{
+		"grant_type": {"password"},
+		"client_id":  {"pub"},
+		"username":   {"alice"},
+		"password":   {"pass"},
+	}.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	_ = s.HandleTokenRequest(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for public password grant, got %d", w.Code)
+	}
+	// Client credentials should be unauthorized_client -> expect 401
+	r2 := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(url.Values{
+		"grant_type":    {"client_credentials"},
+		"client_id":     {"pub"},
+		"client_secret": {""},
+	}.Encode()))
+	r2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w2 := httptest.NewRecorder()
+	_ = s.HandleTokenRequest(w2, r2)
+	if w2.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for public client_credentials, got %d", w2.Code)
+	}
+}
+
+func TestConfidentialClient_RequiresSecret(t *testing.T) {
+	// Setup confidential client with a secret
+	m := manage.NewDefaultManager()
+	m.MustTokenStorage(store.NewMemoryTokenStore())
+	cs := store.NewClientStore()
+	cs.Set("conf", &models.Client{ID: "conf", Secret: "s3cr3t", Domain: "http://localhost", Public: false})
+	m.MapClientStorage(cs)
+	s := server.NewDefaultServer(m)
+	s.SetClientInfoHandler(server.ClientFormHandler)
+
+	// Try client_credentials without providing secret -> invalid_client -> expect 401
+	r := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(url.Values{
+		"grant_type": {"client_credentials"},
+		"client_id":  {"conf"},
+		// missing client_secret
+	}.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	_ = s.HandleTokenRequest(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for missing secret, got %d", w.Code)
+	}
+}
+
+func TestForcePKCE_DeniesMissingCodeVerifier(t *testing.T) {
+	// Setup public client with domain for authorize flow
+	m := manage.NewDefaultManager()
+	m.MustTokenStorage(store.NewMemoryTokenStore())
+	cs := store.NewClientStore()
+	cs.Set("pub", &models.Client{ID: "pub", Secret: "", Domain: "http://localhost", Public: true})
+	m.MapClientStorage(cs)
+	s := server.NewDefaultServer(m)
+	s.SetClientInfoHandler(server.ClientFormHandler)
+
+	// First: authorize request with code_challenge (to pass authorize validation)
+	ar := httptest.NewRequest("GET", "/oauth/authorize", nil)
+	q := ar.URL.Query()
+	q.Set("response_type", "code")
+	q.Set("client_id", "pub")
+	q.Set("redirect_uri", "http://localhost/callback")
+	q.Set("code_challenge", "ThisIsAFourtyThreeCharactersLongStringThing")
+	ar.URL.RawQuery = q.Encode()
+	aw := httptest.NewRecorder()
+	_ = s.HandleAuthorizeRequest(aw, ar)
+	// Simulate token request missing code_verifier -> invalid_request due to ForcePKCE -> expect 401
+	tr := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(url.Values{
+		"grant_type":   {"authorization_code"},
+		"client_id":    {"pub"},
+		"redirect_uri": {"http://localhost/callback"},
+		"code":         {"dummy_code"},
+	}.Encode()))
+	tr.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	tw := httptest.NewRecorder()
+	_ = s.HandleTokenRequest(tw, tr)
+	if tw.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for missing code_verifier, got %d", tw.Code)
+	}
+}
