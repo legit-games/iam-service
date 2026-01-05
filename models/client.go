@@ -46,6 +46,8 @@ type Client struct {
 	Domain string
 	Public bool
 	UserID string
+	// Permissions assigned to this OAuth client (applied to client_credentials tokens)
+	Permissions []string
 }
 
 // GetID client id
@@ -72,3 +74,6 @@ func (c *Client) IsPublic() bool {
 func (c *Client) GetUserID() string {
 	return c.UserID
 }
+
+// GetPermissions returns the permissions assigned to this client.
+func (c *Client) GetPermissions() []string { return c.Permissions }

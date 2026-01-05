@@ -15,7 +15,8 @@ import (
 // JWTAccessClaims jwt claims
 type JWTAccessClaims struct {
 	jwt.RegisteredClaims
-	ClientID string `json:"client_id,omitempty"`
+	ClientID    string   `json:"client_id,omitempty"`
+	Permissions []string `json:"permissions,omitempty"`
 }
 
 // Valid claims verification
@@ -51,6 +52,16 @@ func (a *JWTAccessGenerate) Token(ctx context.Context, data *oauth2.GenerateBasi
 			ExpiresAt: jwt.NewNumericDate(data.TokenInfo.GetAccessCreateAt().Add(data.TokenInfo.GetAccessExpiresIn())),
 		},
 		ClientID: data.Client.GetID(),
+	}
+
+	// If no user (client_credentials), attach client permissions when available
+	if data.UserID == "" {
+		if permsGetter, ok := any(data.Client).(interface{ GetPermissions() []string }); ok {
+			perms := permsGetter.GetPermissions()
+			if len(perms) > 0 {
+				claims.Permissions = append([]string(nil), perms...)
+			}
+		}
 	}
 
 	token := jwt.NewWithClaims(a.SignedMethod, claims)

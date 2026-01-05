@@ -1,7 +1,8 @@
-package server_test
+package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,12 +17,12 @@ import (
 	"github.com/go-oauth2/oauth2/v4/generates"
 	"github.com/go-oauth2/oauth2/v4/manage"
 	"github.com/go-oauth2/oauth2/v4/models"
-	"github.com/go-oauth2/oauth2/v4/server"
 	"github.com/go-oauth2/oauth2/v4/store"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 var (
-	srv          *server.Server
+	srv          *Server
 	tsrv         *httptest.Server
 	manager      *manage.Manager
 	csrv         *httptest.Server
@@ -48,7 +49,7 @@ func clientStore(domain string, public bool) oauth2.ClientStore {
 	} else {
 		secret = clientSecret
 	}
-	clientStore.Set(clientID, &models.Client{
+	_ = clientStore.Set(clientID, &models.Client{
 		ID:     clientID,
 		Secret: secret,
 		Domain: domain,
@@ -107,7 +108,7 @@ func TestAuthorizeCode(t *testing.T) {
 	defer csrv.Close()
 
 	manager.MapClientStorage(clientStore(csrv.URL, true))
-	srv = server.NewDefaultServer(manager)
+	srv = NewDefaultServer(manager)
 	srv.SetUserAuthorizationHandler(func(w http.ResponseWriter, r *http.Request) (userID string, err error) {
 		userID = "000000"
 		return
@@ -158,12 +159,12 @@ func TestAuthorizeCodeWithChallengePlain(t *testing.T) {
 	defer csrv.Close()
 
 	manager.MapClientStorage(clientStore(csrv.URL, true))
-	srv = server.NewDefaultServer(manager)
+	srv = NewDefaultServer(manager)
 	srv.SetUserAuthorizationHandler(func(w http.ResponseWriter, r *http.Request) (userID string, err error) {
 		userID = "000000"
 		return
 	})
-	srv.SetClientInfoHandler(server.ClientFormHandler)
+	srv.SetClientInfoHandler(ClientFormHandler)
 
 	e.GET("/authorize").
 		WithQuery("response_type", "code").
@@ -211,12 +212,12 @@ func TestAuthorizeCodeWithChallengeS256(t *testing.T) {
 	defer csrv.Close()
 
 	manager.MapClientStorage(clientStore(csrv.URL, true))
-	srv = server.NewDefaultServer(manager)
+	srv = NewDefaultServer(manager)
 	srv.SetUserAuthorizationHandler(func(w http.ResponseWriter, r *http.Request) (userID string, err error) {
 		userID = "000000"
 		return
 	})
-	srv.SetClientInfoHandler(server.ClientFormHandler)
+	srv.SetClientInfoHandler(ClientFormHandler)
 
 	e.GET("/authorize").
 		WithQuery("response_type", "code").
@@ -240,7 +241,7 @@ func TestImplicit(t *testing.T) {
 	defer csrv.Close()
 
 	manager.MapClientStorage(clientStore(csrv.URL, false))
-	srv = server.NewDefaultServer(manager)
+	srv = NewDefaultServer(manager)
 	srv.SetUserAuthorizationHandler(func(w http.ResponseWriter, r *http.Request) (userID string, err error) {
 		userID = "000000"
 		return
@@ -263,7 +264,7 @@ func TestPasswordCredentials(t *testing.T) {
 	e := httpexpect.New(t, tsrv.URL)
 
 	manager.MapClientStorage(clientStore("", false))
-	srv = server.NewDefaultServer(manager)
+	srv = NewDefaultServer(manager)
 	srv.SetPasswordAuthorizationHandler(func(ctx context.Context, clientID, username, password string) (userID string, err error) {
 		if username == "admin" && password == "123456" {
 			userID = "000000"
@@ -297,8 +298,8 @@ func TestClientCredentials(t *testing.T) {
 
 	manager.MapClientStorage(clientStore("", false))
 
-	srv = server.NewDefaultServer(manager)
-	srv.SetClientInfoHandler(server.ClientFormHandler)
+	srv = NewDefaultServer(manager)
+	srv.SetClientInfoHandler(ClientFormHandler)
 
 	srv.SetInternalErrorHandler(func(err error) (re *errors.Response) {
 		t.Log("OAuth 2.0 Error:", err.Error())
@@ -337,6 +338,51 @@ func TestClientCredentials(t *testing.T) {
 	t.Logf("%#v\n", resObj.Raw())
 
 	validationAccessToken(t, resObj.Value("access_token").String().Raw())
+}
+
+func TestClientCredentials_PermissionsInJWT(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// inline server for this test
+		m := manage.NewDefaultManager()
+		m.MustTokenStorage(store.NewMemoryTokenStore())
+		m.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("00000000"), jwt.SigningMethodHS512))
+		cliStore := store.NewClientStore()
+		_ = cliStore.Set("confidential", &models.Client{ID: "confidential", Secret: "secret", Permissions: []string{"ADMIN:NAMESPACE:LEGIT-GAMES:CLIENT_READ"}})
+		m.MapClientStorage(cliStore)
+		s := NewDefaultServer(m)
+		s.SetAllowedGrantType(oauth2.ClientCredentials)
+		s.SetClientInfoHandler(ClientFormHandler)
+		if r.URL.Path == "/token" {
+			_ = s.HandleTokenRequest(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	e := httpexpect.New(t, ts.URL)
+	obj := e.POST("/token").
+		WithFormField("grant_type", "client_credentials").
+		WithFormField("client_id", "confidential").
+		WithFormField("client_secret", "secret").
+		Expect().
+		Status(http.StatusOK).
+		JSON().Object()
+	access := obj.Value("access_token").String().Raw()
+	if access == "" {
+		t.Fatalf("no access token returned")
+	}
+	parts := strings.Split(access, ".")
+	if len(parts) < 2 {
+		t.Fatalf("invalid jwt")
+	}
+	payload, _ := base64.RawURLEncoding.DecodeString(parts[1])
+	var claims map[string]any
+	_ = json.Unmarshal(payload, &claims)
+	perms, ok := claims["permissions"].([]any)
+	if !ok || len(perms) == 0 {
+		t.Fatalf("expected permissions in jwt, got: %v", claims)
+	}
 }
 
 func TestRefreshing(t *testing.T) {
@@ -386,7 +432,7 @@ func TestRefreshing(t *testing.T) {
 	defer csrv.Close()
 
 	manager.MapClientStorage(clientStore(csrv.URL, true))
-	srv = server.NewDefaultServer(manager)
+	srv = NewDefaultServer(manager)
 	srv.SetUserAuthorizationHandler(func(w http.ResponseWriter, r *http.Request) (userID string, err error) {
 		userID = "000000"
 		return
@@ -425,8 +471,8 @@ func TestTokenResponseContainsStandardFieldsOnly(t *testing.T) {
 	cs := store.NewClientStore()
 	cs.Set("clientA", &models.Client{ID: "clientA", Secret: "secretA", Domain: "http://localhost"})
 	m.MapClientStorage(cs)
-	s := server.NewDefaultServer(m)
-	s.SetClientInfoHandler(server.ClientFormHandler)
+	s := NewDefaultServer(m)
+	s.SetClientInfoHandler(ClientFormHandler)
 	// prepare a client_credentials grant request
 	r := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(url.Values{
 		"grant_type":    {"client_credentials"},
@@ -472,7 +518,7 @@ func TestTokenResponseContainsStandardFieldsOnly(t *testing.T) {
 func TestRedirectURIValidation_PrefixUnit_Success(t *testing.T) {
 	// Setup server with client domain
 	manager.MapClientStorage(clientStore("http://example.com", true))
-	s := server.NewDefaultServer(manager)
+	s := NewDefaultServer(manager)
 	// Build request
 	r := httptest.NewRequest("GET", "/oauth/authorize", nil)
 	q := r.URL.Query()
@@ -492,7 +538,7 @@ func TestRedirectURIValidation_PrefixUnit_Success(t *testing.T) {
 
 func TestRedirectURIValidation_PrefixUnit_Invalid(t *testing.T) {
 	manager.MapClientStorage(clientStore("http://example.com", true))
-	s := server.NewDefaultServer(manager)
+	s := NewDefaultServer(manager)
 	r := httptest.NewRequest("GET", "/oauth/authorize", nil)
 	q := r.URL.Query()
 	q.Set("response_type", "code")
@@ -512,8 +558,8 @@ func TestPublicClient_DisallowPasswordAndClientCredentials(t *testing.T) {
 	cs := store.NewClientStore()
 	cs.Set("pub", &models.Client{ID: "pub", Secret: "", Domain: "http://localhost", Public: true})
 	m.MapClientStorage(cs)
-	s := server.NewDefaultServer(m)
-	s.SetClientInfoHandler(server.ClientFormHandler)
+	s := NewDefaultServer(m)
+	s.SetClientInfoHandler(ClientFormHandler)
 
 	// Password grant should be unauthorized_client -> expect 401
 	r := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(url.Values{
@@ -549,8 +595,8 @@ func TestConfidentialClient_RequiresSecret(t *testing.T) {
 	cs := store.NewClientStore()
 	cs.Set("conf", &models.Client{ID: "conf", Secret: "s3cr3t", Domain: "http://localhost", Public: false})
 	m.MapClientStorage(cs)
-	s := server.NewDefaultServer(m)
-	s.SetClientInfoHandler(server.ClientFormHandler)
+	s := NewDefaultServer(m)
+	s.SetClientInfoHandler(ClientFormHandler)
 
 	// Try client_credentials without providing secret -> invalid_client -> expect 401
 	r := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(url.Values{
@@ -573,8 +619,8 @@ func TestForcePKCE_DeniesMissingCodeVerifier(t *testing.T) {
 	cs := store.NewClientStore()
 	cs.Set("pub", &models.Client{ID: "pub", Secret: "", Domain: "http://localhost", Public: true})
 	m.MapClientStorage(cs)
-	s := server.NewDefaultServer(m)
-	s.SetClientInfoHandler(server.ClientFormHandler)
+	s := NewDefaultServer(m)
+	s.SetClientInfoHandler(ClientFormHandler)
 
 	// First: authorize request with code_challenge (to pass authorize validation)
 	ar := httptest.NewRequest("GET", "/oauth/authorize", nil)
