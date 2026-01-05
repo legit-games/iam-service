@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS oauth2_clients (
     user_id TEXT,
     public BOOLEAN NOT NULL DEFAULT FALSE,
     permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
+    namespace TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

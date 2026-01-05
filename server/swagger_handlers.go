@@ -34,13 +34,58 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 			"/iam/v1/admin/accounts/{accountId}/permissions": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Append permissions to an account",
-					"description": "Adds or merges permissions array into the account's JSONB permissions field.",
+					"description": "Adds or merges permissions array into the account's JSONB permissions field. Requires ADMIN:NAMESPACE:*:ACCOUNT_UPDATE.",
 					"parameters":  []map[string]interface{}{{"name": "accountId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}}},
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content":  map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"permissions": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}}}, "required": []string{"permissions"}}}},
 					},
 					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}, "400": map[string]interface{}{"description": "Bad Request"}},
+				},
+			},
+			// New: namespace-scoped client routes
+			"/iam/v1/admin/namespaces/{ns}/clients": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Create or update a client in a namespace",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:CLIENT_CREATE. Upserts client with permissions.",
+					"parameters":  []map[string]interface{}{{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}}},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"id":          map[string]interface{}{"type": "string"},
+							"secret":      map[string]interface{}{"type": "string"},
+							"domain":      map[string]interface{}{"type": "string"},
+							"user_id":     map[string]interface{}{"type": "string"},
+							"public":      map[string]interface{}{"type": "boolean"},
+							"permissions": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+						}, "required": []string{"id", "secret", "domain"}}}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}, "401": map[string]interface{}{"description": "Unauthorized"}},
+				},
+				"get": map[string]interface{}{
+					"summary":     "List clients in a namespace",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:CLIENT_READ.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "offset", "in": "query", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
+						{"name": "limit", "in": "query", "schema": map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 1000}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
+				},
+			},
+			"/iam/v1/admin/namespaces/{ns}/clients/{id}/permissions": map[string]interface{}{
+				"put": map[string]interface{}{
+					"summary":     "Replace client permissions in a namespace",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:CLIENT_UPDATE.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content":  map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"permissions": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}}}, "required": []string{"permissions"}}}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
 				},
 			},
 		},
@@ -109,13 +154,57 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 			"/iam/v1/admin/accounts/{accountId}/permissions": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Append permissions to an account",
-					"description": "Adds or merges permissions array into the account's JSONB permissions field.",
+					"description": "Adds or merges permissions array into the account's JSONB permissions field. Requires ADMIN:NAMESPACE:*:ACCOUNT_UPDATE.",
 					"parameters":  []map[string]interface{}{{"name": "accountId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}}},
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content":  map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"permissions": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}}}, "required": []string{"permissions"}}}},
 					},
 					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}, "400": map[string]interface{}{"description": "Bad Request"}},
+				},
+			},
+			"/iam/v1/admin/namespaces/{ns}/clients": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Create or update a client in a namespace",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:CLIENT_CREATE. Upserts client with permissions.",
+					"parameters":  []map[string]interface{}{{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}}},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"id":          map[string]interface{}{"type": "string"},
+							"secret":      map[string]interface{}{"type": "string"},
+							"domain":      map[string]interface{}{"type": "string"},
+							"user_id":     map[string]interface{}{"type": "string"},
+							"public":      map[string]interface{}{"type": "boolean"},
+							"permissions": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+						}, "required": []string{"id", "secret", "domain"}}}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}, "401": map[string]interface{}{"description": "Unauthorized"}},
+				},
+				"get": map[string]interface{}{
+					"summary":     "List clients in a namespace",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:CLIENT_READ.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "offset", "in": "query", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
+						{"name": "limit", "in": "query", "schema": map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 1000}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
+				},
+			},
+			"/iam/v1/admin/namespaces/{ns}/clients/{id}/permissions": map[string]interface{}{
+				"put": map[string]interface{}{
+					"summary":     "Replace client permissions in a namespace",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:CLIENT_UPDATE.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content":  map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"permissions": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}}}, "required": []string{"permissions"}}}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
 				},
 			},
 		},

@@ -56,12 +56,14 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.POST("/iam/v1/accounts/:id/link", RequireAuthorization("ADMIN:NAMESPACE:*:USER", perm.UPDATE, nil), s.handleLinkAccount)
 	r.POST("/iam/v1/accounts/:id/unlink", RequireAuthorization("ADMIN:NAMESPACE:*:USER", perm.UPDATE, nil), s.handleUnlinkAccount)
 
-	// Admin: client upsert and permissions
-	r.POST("/iam/v1/admin/clients", RequireAuthorization("ADMIN:NAMESPACE:*:CLIENT", perm.CREATE, nil), s.HandleUpsertClientGin)
-	r.PUT("/iam/v1/admin/clients/:id/permissions", RequireAuthorization("ADMIN:NAMESPACE:*:CLIENT", perm.UPDATE, nil), s.HandleUpdateClientPermissionsGin)
+	// Admin: client upsert and permissions (namespace required)
+	r.POST("/iam/v1/admin/namespaces/:ns/clients", RequireAuthorization("ADMIN:NAMESPACE:{ns}:CLIENT", perm.CREATE, nil), s.HandleUpsertClientByNamespaceGin)
+	r.PUT("/iam/v1/admin/namespaces/:ns/clients/:id/permissions", RequireAuthorization("ADMIN:NAMESPACE:{ns}:CLIENT", perm.UPDATE, nil), s.HandleUpdateClientPermissionsByNamespaceGin)
 	// Admin: client read/list/delete
 	r.GET("/iam/v1/admin/clients/:id", RequireAuthorization("ADMIN:NAMESPACE:*:CLIENT", perm.READ, nil), s.HandleGetClientGin)
 	r.GET("/iam/v1/admin/clients", RequireAuthorization("ADMIN:NAMESPACE:*:CLIENT", perm.READ, nil), s.HandleListClientsGin)
+	// list clients by namespace
+	r.GET("/iam/v1/admin/namespaces/:ns/clients", RequireAuthorization("ADMIN:NAMESPACE:{ns}:CLIENT", perm.READ, nil), s.HandleListClientsByNamespaceGin)
 	r.DELETE("/iam/v1/admin/clients/:id", RequireAuthorization("ADMIN:NAMESPACE:*:CLIENT", perm.DELETE, nil), s.HandleDeleteClientGin)
 
 	// Admin: add permissions to an account (Gin-native)
