@@ -580,17 +580,18 @@ func (s *Server) token(w http.ResponseWriter, data map[string]interface{}, heade
 func (s *Server) swaggerAuthorizePath() map[string]interface{} {
 	return map[string]interface{}{
 		"get": map[string]interface{}{
-			"summary": "Authorization Endpoint",
+			"summary":     "Authorization Endpoint",
+			"description": "Starts the OAuth 2.0 authorization flow. Redirect URI must match the registered client domain (prefix allowed). When ForcePKCE is enabled, code_challenge is required.",
 			"parameters": []map[string]interface{}{
 				{"name": "response_type", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string", "enum": []string{"code", "token"}}},
 				{"name": "client_id", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string"}},
-				{"name": "redirect_uri", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string", "format": "uri"}},
+				{"name": "redirect_uri", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string", "format": "uri"}, "description": "Must equal or start with the client's registered domain."},
 				{"name": "scope", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}},
 				{"name": "state", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}},
-				{"name": "code_challenge", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}},
+				{"name": "code_challenge", "in": "query", "required": s.Config != nil && s.Config.ForcePKCE, "schema": map[string]interface{}{"type": "string"}, "description": "Required when PKCE is enforced."},
 				{"name": "code_challenge_method", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string", "enum": []string{"plain", "S256"}}},
 			},
-			"responses": map[string]interface{}{"302": map[string]interface{}{"description": "Redirect with code or token"}},
+			"responses": map[string]interface{}{"302": map[string]interface{}{"description": "Redirect with code or token"}, "400": map[string]interface{}{"description": "Invalid request"}, "401": map[string]interface{}{"description": "Unauthorized client"}},
 		},
 	}
 }
@@ -598,17 +599,18 @@ func (s *Server) swaggerAuthorizePath() map[string]interface{} {
 func (s *Server) swaggerTokenPath() map[string]interface{} {
 	return map[string]interface{}{
 		"post": map[string]interface{}{
-			"summary": "Token Endpoint",
+			"summary":     "Token Endpoint",
+			"description": "Issues tokens for supported grant types. Confidential clients must authenticate via Basic or form client_secret. Public clients are restricted to Authorization Code (with PKCE) and Refresh Token grants.",
 			"requestBody": map[string]interface{}{
 				"required": true,
 				"content": map[string]interface{}{
 					"application/x-www-form-urlencoded": map[string]interface{}{
 						"schema": map[string]interface{}{"type": "object"},
 						"examples": map[string]interface{}{
-							"client_credentials": map[string]interface{}{"value": "grant_type=client_credentials&scope=read"},
-							"authorization_code": map[string]interface{}{"value": "grant_type=authorization_code&code=XXX&redirect_uri=..."},
-							"password":           map[string]interface{}{"value": "grant_type=password&username=foo&password=bar"},
-							"refresh_token":      map[string]interface{}{"value": "grant_type=refresh_token&refresh_token=XXX"},
+							"client_credentials": map[string]interface{}{"value": "grant_type=client_credentials&client_id=confidential&client_secret=secret", "summary": "Confidential client only"},
+							"authorization_code": map[string]interface{}{"value": "grant_type=authorization_code&code=XXX&redirect_uri=...&code_verifier=...", "summary": "PKCE required when enforced"},
+							"password":           map[string]interface{}{"value": "grant_type=password&username=foo&password=bar&client_id=confidential&client_secret=secret", "summary": "Discouraged; not allowed for public clients"},
+							"refresh_token":      map[string]interface{}{"value": "grant_type=refresh_token&refresh_token=XXX", "summary": "Refresh token rotation enabled"},
 						},
 					},
 				},
@@ -628,7 +630,10 @@ func (s *Server) swaggerTokenPath() map[string]interface{} {
 						},
 					},
 				},
+				"400": map[string]interface{}{"description": "Invalid request"},
+				"401": map[string]interface{}{"description": "Unauthorized client"},
 			},
+			"security": []map[string]interface{}{{"basicAuth": []string{}}},
 		},
 	}
 }
@@ -637,8 +642,9 @@ func (s *Server) swaggerIntrospectPath() map[string]interface{} {
 	return map[string]interface{}{
 		"post": map[string]interface{}{
 			"summary":     "RFC 7662 Token Introspection",
+			"description": "Introspects access or refresh tokens. Confidential clients must authenticate via Basic or form.",
 			"requestBody": map[string]interface{}{"required": true, "content": map[string]interface{}{"application/x-www-form-urlencoded": map[string]interface{}{"schema": map[string]interface{}{"type": "object"}}}},
-			"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Introspection result"}},
+			"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Introspection result"}, "401": map[string]interface{}{"description": "Unauthorized client"}},
 			"security":    []map[string]interface{}{{"basicAuth": []string{}}},
 		},
 	}
@@ -648,7 +654,7 @@ func (s *Server) swaggerRevokePath() map[string]interface{} {
 	return map[string]interface{}{
 		"post": map[string]interface{}{
 			"summary":     "RFC 7009 Token Revocation",
-			"description": "Revokes an access or refresh token. The client must authenticate using Basic auth or form parameters. Per RFC 7009, successful revocation returns 200 even if the token is invalid or already revoked.",
+			"description": "Revokes an access or refresh token. Confidential clients must authenticate using Basic or form parameters. Per RFC 7009, successful revocation returns 200 even if the token is invalid or already revoked.",
 			"requestBody": map[string]interface{}{
 				"required": true,
 				"content": map[string]interface{}{
