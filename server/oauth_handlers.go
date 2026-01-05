@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-oauth2/oauth2/v4"
@@ -80,6 +81,17 @@ func (s *Server) ValidationAuthorizeRequest(r *http.Request) (*AuthorizeRequest,
 		return nil, errors.ErrUnsupportedResponseType
 	} else if allowed := s.CheckResponseType(resType); !allowed {
 		return nil, errors.ErrUnauthorizedClient
+	}
+
+	// Strict redirect URI check: when client has a registered domain, enforce that redirect_uri has that domain as prefix.
+	if redirectURI != "" {
+		cli, err := s.Manager.GetClient(r.Context(), clientID)
+		if err != nil {
+			return nil, err
+		}
+		if d := cli.GetDomain(); d != "" && !(redirectURI == d || strings.HasPrefix(redirectURI, strings.TrimRight(d, "/")+"/")) {
+			return nil, errors.ErrInvalidRedirectURI
+		}
 	}
 
 	cc := r.FormValue("code_challenge")
@@ -236,6 +248,14 @@ func (s *Server) ValidationTokenRequest(r *http.Request) (oauth2.GrantType, *oau
 		tgr.Code = r.FormValue("code")
 		if tgr.RedirectURI == "" || tgr.Code == "" {
 			return "", nil, errors.ErrInvalidRequest
+		}
+		// Strict redirect URI check: when client has a registered domain, enforce prefix match.
+		cli, err := s.Manager.GetClient(r.Context(), clientID)
+		if err != nil {
+			return "", nil, err
+		}
+		if d := cli.GetDomain(); d != "" && !(tgr.RedirectURI == d || strings.HasPrefix(tgr.RedirectURI, strings.TrimRight(d, "/")+"/")) {
+			return "", nil, errors.ErrInvalidRedirectURI
 		}
 		tgr.CodeVerifier = r.FormValue("code_verifier")
 		if s.Config.ForcePKCE && tgr.CodeVerifier == "" {

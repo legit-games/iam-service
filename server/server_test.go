@@ -468,3 +468,39 @@ func TestTokenResponseContainsStandardFieldsOnly(t *testing.T) {
 		t.Fatalf("unexpected non-standard field expiry present: %v", resp)
 	}
 }
+
+func TestRedirectURIValidation_PrefixUnit_Success(t *testing.T) {
+	// Setup server with client domain
+	manager.MapClientStorage(clientStore("http://example.com", true))
+	s := server.NewDefaultServer(manager)
+	// Build request
+	r := httptest.NewRequest("GET", "/oauth/authorize", nil)
+	q := r.URL.Query()
+	q.Set("response_type", "code")
+	q.Set("client_id", clientID)
+	q.Set("redirect_uri", "http://example.com/oauth2/callback")
+	r.URL.RawQuery = q.Encode()
+	// Validate
+	req, err := s.ValidationAuthorizeRequest(r)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.RedirectURI != "http://example.com/oauth2/callback" {
+		t.Fatalf("redirect mismatch: %s", req.RedirectURI)
+	}
+}
+
+func TestRedirectURIValidation_PrefixUnit_Invalid(t *testing.T) {
+	manager.MapClientStorage(clientStore("http://example.com", true))
+	s := server.NewDefaultServer(manager)
+	r := httptest.NewRequest("GET", "/oauth/authorize", nil)
+	q := r.URL.Query()
+	q.Set("response_type", "code")
+	q.Set("client_id", clientID)
+	q.Set("redirect_uri", "http://evil.com/callback")
+	r.URL.RawQuery = q.Encode()
+	_, err := s.ValidationAuthorizeRequest(r)
+	if err == nil {
+		t.Fatalf("expected invalid redirect error, got nil")
+	}
+}
