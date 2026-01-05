@@ -8,7 +8,10 @@ CREATE TABLE IF NOT EXISTS oauth2_clients (
     secret TEXT NOT NULL,
     domain TEXT NOT NULL,
     user_id TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    public BOOLEAN NOT NULL DEFAULT FALSE,
+    permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS oauth2_tokens (
