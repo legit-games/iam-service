@@ -46,6 +46,19 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 		},
 		"components": map[string]interface{}{"securitySchemes": map[string]interface{}{"basicAuth": map[string]interface{}{"type": "http", "scheme": "basic"}}},
 	}
+	// OIDC endpoints in spec when enabled
+	if s.Config != nil && s.Config.OIDCEnabled {
+		paths := spec["paths"].(map[string]interface{})
+		paths["/.well-known/openid-configuration"] = map[string]interface{}{
+			"get": map[string]interface{}{"summary": "OIDC Discovery", "responses": map[string]interface{}{"200": map[string]interface{}{"description": "OpenID Provider Metadata"}}},
+		}
+		paths["/.well-known/jwks.json"] = map[string]interface{}{
+			"get": map[string]interface{}{"summary": "OIDC JWKS", "responses": map[string]interface{}{"200": map[string]interface{}{"description": "JSON Web Key Set"}}},
+		}
+		paths["/oauth/userinfo"] = map[string]interface{}{
+			"get": map[string]interface{}{"summary": "OIDC UserInfo", "responses": map[string]interface{}{"200": map[string]interface{}{"description": "User claims"}, "401": map[string]interface{}{"description": "Unauthorized"}}},
+		}
+	}
 	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
 	return json.NewEncoder(w).Encode(spec)
@@ -107,6 +120,18 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 			},
 		},
 		"components": map[string]interface{}{"securitySchemes": map[string]interface{}{"basicAuth": map[string]interface{}{"type": "http", "scheme": "basic"}}},
+	}
+	if s.Config != nil && s.Config.OIDCEnabled {
+		paths := spec["paths"].(map[string]interface{})
+		paths["/.well-known/openid-configuration"] = map[string]interface{}{
+			"get": map[string]interface{}{"summary": "OIDC Discovery", "responses": map[string]interface{}{"200": map[string]interface{}{"description": "OpenID Provider Metadata"}}},
+		}
+		paths["/.well-known/jwks.json"] = map[string]interface{}{
+			"get": map[string]interface{}{"summary": "OIDC JWKS", "responses": map[string]interface{}{"200": map[string]interface{}{"description": "JSON Web Key Set"}}},
+		}
+		paths["/oauth/userinfo"] = map[string]interface{}{
+			"get": map[string]interface{}{"summary": "OIDC UserInfo", "responses": map[string]interface{}{"200": map[string]interface{}{"description": "User claims"}, "401": map[string]interface{}{"description": "Unauthorized"}}},
+		}
 	}
 	c.Header("Content-Type", "application/json;charset=UTF-8")
 	c.Status(http.StatusOK)

@@ -18,6 +18,9 @@ type Config struct {
 	AllowedGrantTypes           []oauth2.GrantType    // allow the grant type
 	AllowedCodeChallengeMethods []oauth2.CodeChallengeMethod
 	ForcePKCE                   bool
+	// OIDC settings
+	OIDCEnabled bool
+	Issuer      string // issuer URL for ID tokens and discovery
 }
 
 // NewConfig create to configuration instance
@@ -35,6 +38,9 @@ func NewConfig() *Config {
 			oauth2.CodeChallengePlain,
 			oauth2.CodeChallengeS256,
 		},
+		ForcePKCE:   true,
+		OIDCEnabled: true,
+		Issuer:      "http://localhost", // can be overridden by deployment config
 	}
 }
 
@@ -50,6 +56,8 @@ type AuthorizeRequest struct {
 	CodeChallengeMethod oauth2.CodeChallengeMethod
 	AccessTokenExp      time.Duration
 	Request             *http.Request
+	// OIDC
+	Nonce string
 }
 
 // Application-level sentinel errors for missing configuration.
