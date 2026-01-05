@@ -39,29 +39,37 @@ func (ts *TokenStore) Create(ctx context.Context, info oauth2.TokenInfo) error {
 	}
 
 	return ts.db.Update(func(tx *buntdb.Tx) error {
+		// Authorization code
 		if code := info.GetCode(); code != "" {
 			_, _, err := tx.Set(code, string(jv), &buntdb.SetOptions{Expires: true, TTL: info.GetCodeExpiresIn()})
 			return err
 		}
 
+		// Basic token identifier for grouping related entries
 		basicID := uuid.Must(uuid.NewRandom()).String()
 		aexp := info.GetAccessExpiresIn()
 		rexp := aexp
 		expires := true
+
+		// Refresh Rotation: if a refresh token is present, rotate it by issuing a new mapping and invalidating any previous one.
 		if refresh := info.GetRefresh(); refresh != "" {
+			// Compute refresh TTL from token fields
 			rexp = info.GetRefreshCreateAt().Add(info.GetRefreshExpiresIn()).Sub(ct)
 			if aexp.Seconds() > rexp.Seconds() {
 				aexp = rexp
 			}
 			expires = info.GetRefreshExpiresIn() != 0
-			_, _, err := tx.Set(refresh, basicID, &buntdb.SetOptions{Expires: expires, TTL: rexp})
-			if err != nil {
+			// Invalidate any existing mapping for this refresh (prevent reuse) before setting the new one
+			// Note: Delete is safe even if key doesn't exist
+			_, _ = tx.Delete(refresh)
+			// Bind current refresh -> basicID with appropriate TTL
+			if _, _, err := tx.Set(refresh, basicID, &buntdb.SetOptions{Expires: expires, TTL: rexp}); err != nil {
 				return err
 			}
 		}
 
-		_, _, err := tx.Set(basicID, string(jv), &buntdb.SetOptions{Expires: expires, TTL: rexp})
-		if err != nil {
+		// Store the token payload under basicID and bind access -> basicID
+		if _, _, err := tx.Set(basicID, string(jv), &buntdb.SetOptions{Expires: expires, TTL: rexp}); err != nil {
 			return err
 		}
 		_, _, err = tx.Set(info.GetAccess(), basicID, &buntdb.SetOptions{Expires: expires, TTL: aexp})
