@@ -20,6 +20,14 @@ const (
 	UserBody UserType = "BODY"
 )
 
+// BanType represents the type of ban.
+type BanType string
+
+const (
+	BanPermanent BanType = "PERMANENT"
+	BanTimed     BanType = "TIMED"
+)
+
 // User represents a user belonging to an account, optionally scoped to a namespace and provider.
 type User struct {
 	ID                string    `json:"id" db:"id"`
@@ -31,6 +39,30 @@ type User struct {
 	Orphaned          bool      `json:"orphaned" db:"orphaned"`
 	CreatedAt         time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// UserBan represents a ban entry for a user in a specific namespace.
+type UserBan struct {
+	ID        string    `json:"id" db:"id"`
+	UserID    string    `json:"user_id" db:"user_id"`
+	Namespace string    `json:"namespace" db:"namespace"`
+	Type      BanType   `json:"type" db:"type"`
+	Reason    string    `json:"reason" db:"reason"`
+	Until     time.Time `json:"until" db:"until"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+}
+
+// UserBanHistory stores ban/unban audit history.
+type UserBanHistory struct {
+	ID        string    `json:"id" db:"id"`
+	UserID    string    `json:"user_id" db:"user_id"`
+	Namespace string    `json:"namespace" db:"namespace"`
+	Action    string    `json:"action" db:"action"` // BAN or UNBAN
+	Type      BanType   `json:"type" db:"type"`
+	Reason    string    `json:"reason" db:"reason"`
+	Until     time.Time `json:"until" db:"until"`
+	ActorID   string    `json:"actor_id" db:"actor_id"` // who performed the ban
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
 // ReevaluateAccountType determines the account type from a set of users.

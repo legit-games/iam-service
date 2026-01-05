@@ -68,6 +68,12 @@ func NewGinEngine(s *Server) *gin.Engine {
 
 	// Admin: add permissions to an account (Gin-native)
 	// r.POST("/iam/v1/admin/accounts/:accountId/permissions", s.HandleAPIAddAccountPermissionsGin)
+	// Admin: ban/unban user in namespace
+	r.POST("/iam/v1/admin/namespaces/:ns/users/:id/ban", RequireAuthorization("ADMIN:NAMESPACE:{ns}:USER", perm.UPDATE, nil), s.HandleBanUserGin)
+	r.POST("/iam/v1/admin/namespaces/:ns/users/:id/unban", RequireAuthorization("ADMIN:NAMESPACE:{ns}:USER", perm.UPDATE, nil), s.HandleUnbanUserGin)
+	// Admin: list bans
+	r.GET("/iam/v1/admin/namespaces/:ns/users/:id/bans", RequireAuthorization("ADMIN:NAMESPACE:{ns}:USER", perm.READ, nil), s.HandleListUserBansGin)
+	r.GET("/iam/v1/admin/namespaces/:ns/bans", RequireAuthorization("ADMIN:NAMESPACE:{ns}:USER", perm.READ, nil), s.HandleListNamespaceBansGin)
 
 	return r
 }

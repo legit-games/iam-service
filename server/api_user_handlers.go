@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-oauth2/oauth2/v4/models"
@@ -196,4 +197,133 @@ func (s *Server) swaggerRegisterUserPath() map[string]interface{} {
 			},
 		},
 	}
+}
+
+type BanRequest struct {
+	Type   models.BanType `json:"type" binding:"required"` // PERMANENT or TIMED
+	Reason string         `json:"reason"`
+	Until  *time.Time     `json:"until"` // required when type=TIMED
+	// ActorID is no longer accepted from client; derived from caller's access token
+}
+
+func (s *Server) HandleBanUserGin(c *gin.Context) {
+	if s.userStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "user store not initialized"})
+		return
+	}
+	var req BanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": err.Error()})
+		return
+	}
+	if req.Type == models.BanTimed && req.Until == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "until is required for TIMED ban"})
+		return
+	}
+	// derive actor account from bearer token's userID
+	ti, verr := s.ValidationBearerToken(c.Request)
+	if verr != nil || ti == nil || ti.GetUserID() == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "missing or invalid access token"})
+		return
+	}
+	callerUserID := ti.GetUserID()
+	// lookup account_id by user id
+	db, dberr := s.GetIAMReadDB()
+	if dberr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": dberr.Error()})
+		return
+	}
+	var actorAccountID string
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM users WHERE id=$1`, callerUserID).Row()
+	if err := row.Scan(&actorAccountID); err != nil || strings.TrimSpace(actorAccountID) == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "unable to resolve actor account"})
+		return
+	}
+
+	userID := c.Param("id")
+	ns := strings.ToUpper(strings.TrimSpace(c.Param("ns")))
+	if err := s.userStore.BanUser(c.Request.Context(), userID, ns, req.Type, req.Reason, req.Until, actorAccountID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "banned", "user_id": userID, "namespace": ns, "type": req.Type, "actor_account_id": actorAccountID})
+}
+
+func (s *Server) HandleUnbanUserGin(c *gin.Context) {
+	if s.userStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "user store not initialized"})
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": err.Error()})
+		return
+	}
+	// derive actor account from bearer token's userID
+	ti, verr := s.ValidationBearerToken(c.Request)
+	if verr != nil || ti == nil || ti.GetUserID() == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "missing or invalid access token"})
+		return
+	}
+	callerUserID := ti.GetUserID()
+	db, dberr := s.GetIAMReadDB()
+	if dberr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": dberr.Error()})
+		return
+	}
+	var actorAccountID string
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM users WHERE id=$1`, callerUserID).Row()
+	if err := row.Scan(&actorAccountID); err != nil || strings.TrimSpace(actorAccountID) == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "unable to resolve actor account"})
+		return
+	}
+
+	userID := c.Param("id")
+	ns := strings.ToUpper(strings.TrimSpace(c.Param("ns")))
+	if err := s.userStore.UnbanUser(c.Request.Context(), userID, ns, req.Reason, actorAccountID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "unbanned", "user_id": userID, "namespace": ns, "actor_account_id": actorAccountID})
+}
+
+// List bans for a user in a namespace
+func (s *Server) HandleListUserBansGin(c *gin.Context) {
+	if s.userStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "user store not initialized"})
+		return
+	}
+	ns := strings.ToUpper(strings.TrimSpace(c.Param("ns")))
+	userID := strings.TrimSpace(c.Param("id"))
+	var rows []map[string]interface{}
+	db := s.userStore.DB
+	if err := db.WithContext(c.Request.Context()).Raw(`SELECT id, user_id, namespace, type, reason, until, created_at FROM user_bans WHERE user_id=? AND namespace=? ORDER BY created_at DESC`, userID, ns).Scan(&rows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"bans": rows})
+}
+
+// List bans in a namespace, optional active=true filters to current bans only
+func (s *Server) HandleListNamespaceBansGin(c *gin.Context) {
+	if s.userStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "user store not initialized"})
+		return
+	}
+	ns := strings.ToUpper(strings.TrimSpace(c.Param("ns")))
+	active := strings.EqualFold(strings.TrimSpace(c.Query("active")), "true")
+	var rows []map[string]interface{}
+	db := s.userStore.DB
+	query := `SELECT id, user_id, namespace, type, reason, until, created_at FROM user_bans WHERE namespace=?`
+	if active {
+		query += ` AND (type='PERMANENT' OR (type='TIMED' AND (until IS NULL OR until>NOW())))`
+	}
+	query += ` ORDER BY created_at DESC`
+	if err := db.WithContext(c.Request.Context()).Raw(query, ns).Scan(&rows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"bans": rows})
 }
