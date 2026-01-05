@@ -327,3 +327,105 @@ func (s *Server) HandleListNamespaceBansGin(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"bans": rows})
 }
+
+type AccountBanRequest struct {
+	Type   models.BanType `json:"type" binding:"required"` // PERMANENT or TIMED
+	Reason string         `json:"reason"`
+	Until  *time.Time     `json:"until"` // required when type=TIMED
+}
+
+func (s *Server) HandleBanAccountGin(c *gin.Context) {
+	if s.userStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "user store not initialized"})
+		return
+	}
+	var req AccountBanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": err.Error()})
+		return
+	}
+	if req.Type == models.BanTimed && req.Until == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "until is required for TIMED ban"})
+		return
+	}
+	// derive actor account from bearer token's userID
+	ti, verr := s.ValidationBearerToken(c.Request)
+	if verr != nil || ti == nil || ti.GetUserID() == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "missing or invalid access token"})
+		return
+	}
+	callerUserID := ti.GetUserID()
+	db, dberr := s.GetIAMReadDB()
+	if dberr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": dberr.Error()})
+		return
+	}
+	var actorAccountID string
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM users WHERE id=$1`, callerUserID).Row()
+	if err := row.Scan(&actorAccountID); err != nil || strings.TrimSpace(actorAccountID) == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "unable to resolve actor account"})
+		return
+	}
+
+	accountID := c.Param("id")
+	if err := s.userStore.BanAccount(c.Request.Context(), accountID, req.Type, req.Reason, req.Until, actorAccountID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "banned", "account_id": accountID, "type": req.Type, "actor_account_id": actorAccountID})
+}
+
+func (s *Server) HandleUnbanAccountGin(c *gin.Context) {
+	if s.userStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "user store not initialized"})
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": err.Error()})
+		return
+	}
+	// derive actor account from bearer token's userID
+	ti, verr := s.ValidationBearerToken(c.Request)
+	if verr != nil || ti == nil || ti.GetUserID() == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "missing or invalid access token"})
+		return
+	}
+	callerUserID := ti.GetUserID()
+	db, dberr := s.GetIAMReadDB()
+	if dberr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": dberr.Error()})
+		return
+	}
+	var actorAccountID string
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM users WHERE id=$1`, callerUserID).Row()
+	if err := row.Scan(&actorAccountID); err != nil || strings.TrimSpace(actorAccountID) == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "unable to resolve actor account"})
+		return
+	}
+
+	accountID := c.Param("id")
+	if err := s.userStore.UnbanAccount(c.Request.Context(), accountID, req.Reason, actorAccountID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "unbanned", "account_id": accountID, "actor_account_id": actorAccountID})
+}
+
+// List bans for an account
+func (s *Server) HandleListAccountBansGin(c *gin.Context) {
+	if s.userStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "user store not initialized"})
+		return
+	}
+	accountID := strings.TrimSpace(c.Param("id"))
+	var rows []map[string]interface{}
+	db := s.userStore.DB
+	if err := db.WithContext(c.Request.Context()).Raw(`SELECT id, account_id, type, reason, until, created_at FROM account_bans WHERE account_id=? ORDER BY created_at DESC`, accountID).Scan(&rows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"bans": rows})
+}

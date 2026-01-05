@@ -339,7 +339,7 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 		}
 	}
 
-	// Ban enforcement: deny access token issuance if user is banned in namespace.
+	// Ban enforcement: deny access token issuance if user is banned in namespace or account is banned.
 	// Determine namespace from request form (ns) or from issued token info for refresh.
 	ns := strings.ToUpper(strings.TrimSpace(FormValue(tgr.Request, "ns")))
 
@@ -358,7 +358,7 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 			}
 		}
 		if s.userStore != nil && ti.GetUserID() != "" && ns != "" {
-			banned, berr := s.userStore.IsUserBanned(ctx, ti.GetUserID(), ns)
+			banned, berr := s.userStore.IsUserBannedByAccount(ctx, ti.GetUserID(), ns)
 			if berr != nil {
 				return nil, berr
 			}
@@ -376,9 +376,9 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 				return nil, errors.ErrInvalidScope
 			}
 		}
-		// Ensure not banned for namespace
+		// Ensure not banned for namespace or account
 		if s.userStore != nil && tgr.UserID != "" && ns != "" {
-			banned, berr := s.userStore.IsUserBanned(ctx, tgr.UserID, ns)
+			banned, berr := s.userStore.IsUserBannedByAccount(ctx, tgr.UserID, ns)
 			if berr != nil {
 				return nil, berr
 			}
@@ -419,7 +419,7 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 			if err == nil && rti != nil {
 				uid := rti.GetUserID()
 				if uid != "" {
-					banned, berr := s.userStore.IsUserBanned(ctx, uid, ns)
+					banned, berr := s.userStore.IsUserBannedByAccount(ctx, uid, ns)
 					if berr != nil {
 						return nil, berr
 					}
