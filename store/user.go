@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/go-oauth2/oauth2/v4/models"
@@ -112,4 +113,59 @@ func (s *UserStore) GetUser(ctx context.Context, accountID string, namespace *st
 		return nil, nil
 	}
 	return &u, nil
+}
+
+// BanUser applies a ban to a user within a namespace with type and reason. For TIMED, until must be set.
+func (s *UserStore) BanUser(ctx context.Context, userID, namespace string, btype models.BanType, reason string, until *time.Time, actorID string) error {
+	ns := strings.ToUpper(strings.TrimSpace(namespace))
+	if ns == "" {
+		return gorm.ErrInvalidData
+	}
+	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		id := models.LegitID()
+		var untilVal interface{}
+		if until != nil {
+			untilVal = *until
+		} else {
+			untilVal = nil
+		}
+		if err := tx.Exec(`INSERT INTO user_bans(id, user_id, namespace, type, reason, until) VALUES(?,?,?,?,?,?)`, id, userID, ns, string(btype), reason, untilVal).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`INSERT INTO user_ban_history(id, user_id, namespace, action, type, reason, until, actor_id, created_at) VALUES(?,?,?,?,?,?,?,?,?)`, models.LegitID(), userID, ns, "BAN", string(btype), reason, untilVal, actorID, time.Now()).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+// UnbanUser removes ban entries for a user within a namespace and logs history.
+func (s *UserStore) UnbanUser(ctx context.Context, userID, namespace string, reason string, actorID string) error {
+	ns := strings.ToUpper(strings.TrimSpace(namespace))
+	if ns == "" {
+		return gorm.ErrInvalidData
+	}
+	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`DELETE FROM user_bans WHERE user_id=? AND namespace=?`, userID, ns).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`INSERT INTO user_ban_history(id, user_id, namespace, action, reason, actor_id, created_at) VALUES(?,?,?,?,?,?,?)`, models.LegitID(), userID, ns, "UNBAN", reason, actorID, time.Now()).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+// IsUserBanned returns true if the user is currently banned in the given namespace.
+func (s *UserStore) IsUserBanned(ctx context.Context, userID, namespace string) (bool, error) {
+	ns := strings.ToUpper(strings.TrimSpace(namespace))
+	if ns == "" {
+		return false, nil
+	}
+	var count int64
+	err := s.DB.WithContext(ctx).Raw(`SELECT COUNT(1) FROM user_bans WHERE user_id=? AND namespace=? AND (type='PERMANENT' OR (type='TIMED' AND (until IS NULL OR until>NOW())))`, userID, ns).Scan(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

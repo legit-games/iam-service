@@ -16,4 +16,5 @@ var (
 	ErrMissingCodeVerifier  = errors.New("missing code verifier")
 	ErrMissingCodeChallenge = errors.New("missing code challenge")
 	ErrInvalidCodeChallenge = errors.New("invalid code challenge")
+	ErrUserBanned           = errors.New("user is banned")
 )

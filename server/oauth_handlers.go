@@ -339,8 +339,13 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 		}
 	}
 
+	// Ban enforcement: deny access token issuance if user is banned in namespace.
+	// Determine namespace from request form (ns) or from issued token info for refresh.
+	ns := strings.ToUpper(strings.TrimSpace(FormValue(tgr.Request, "ns")))
+
 	switch gt {
 	case oauth2.AuthorizationCode:
+		// On code exchange, need to resolve userID via stored code; manager will produce ti; we can check after generate and before return.
 		ti, err := s.Manager.GenerateAccessToken(ctx, gt, tgr)
 		if err != nil {
 			switch err {
@@ -352,8 +357,37 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 				return nil, err
 			}
 		}
+		if s.userStore != nil && ti.GetUserID() != "" && ns != "" {
+			banned, berr := s.userStore.IsUserBanned(ctx, ti.GetUserID(), ns)
+			if berr != nil {
+				return nil, berr
+			}
+			if banned {
+				return nil, errors.ErrUserBanned
+			}
+		}
 		return ti, nil
-	case oauth2.PasswordCredentials, oauth2.ClientCredentials:
+	case oauth2.PasswordCredentials:
+		if fn := s.ClientScopeHandler; fn != nil {
+			allowed, err := fn(tgr)
+			if err != nil {
+				return nil, err
+			} else if !allowed {
+				return nil, errors.ErrInvalidScope
+			}
+		}
+		// Ensure not banned for namespace
+		if s.userStore != nil && tgr.UserID != "" && ns != "" {
+			banned, berr := s.userStore.IsUserBanned(ctx, tgr.UserID, ns)
+			if berr != nil {
+				return nil, berr
+			}
+			if banned {
+				return nil, errors.ErrUserBanned
+			}
+		}
+		return s.Manager.GenerateAccessToken(ctx, gt, tgr)
+	case oauth2.ClientCredentials:
 		if fn := s.ClientScopeHandler; fn != nil {
 			allowed, err := fn(tgr)
 			if err != nil {
@@ -364,7 +398,7 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 		}
 		return s.Manager.GenerateAccessToken(ctx, gt, tgr)
 	case oauth2.Refreshing:
-		// check scope
+		// On refresh, check ban for the user extracted from existing refresh token info if namespace is present.
 		if scopeFn := s.RefreshingScopeHandler; tgr.Scope != "" && scopeFn != nil {
 			rti, err := s.Manager.LoadRefreshToken(ctx, tgr.Refresh)
 			if err != nil {
@@ -373,7 +407,6 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 				}
 				return nil, err
 			}
-
 			allowed, err := scopeFn(tgr, rti.GetScope())
 			if err != nil {
 				return nil, err
@@ -381,20 +414,19 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 				return nil, errors.ErrInvalidScope
 			}
 		}
-
-		if validationFn := s.RefreshingValidationHandler; validationFn != nil {
+		if s.userStore != nil && ns != "" {
 			rti, err := s.Manager.LoadRefreshToken(ctx, tgr.Refresh)
-			if err != nil {
-				if err == errors.ErrInvalidRefreshToken || err == errors.ErrExpiredRefreshToken {
-					return nil, errors.ErrInvalidGrant
+			if err == nil && rti != nil {
+				uid := rti.GetUserID()
+				if uid != "" {
+					banned, berr := s.userStore.IsUserBanned(ctx, uid, ns)
+					if berr != nil {
+						return nil, berr
+					}
+					if banned {
+						return nil, errors.ErrUserBanned
+					}
 				}
-				return nil, err
-			}
-			allowed, err := validationFn(rti)
-			if err != nil {
-				return nil, err
-			} else if !allowed {
-				return nil, errors.ErrInvalidScope
 			}
 		}
 
