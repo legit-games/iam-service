@@ -138,3 +138,56 @@ func testToken(store oauth2.TokenStore) {
 		So(rinfo, ShouldBeNil)
 	})
 }
+
+func TestRefreshTokenRotation(t *testing.T) {
+	Convey("Refresh token rotation invalidates previous mapping", t, func() {
+		// Use a temp file-backed store to persist keys across operations
+		tmp := t.TempDir()
+		path := filepath.Join(tmp, "rot.db")
+		st, err := store.NewFileTokenStore(path)
+		So(err, ShouldBeNil)
+
+		ctx := context.Background()
+		refresh := "rot-refresh-1"
+
+		// First issuance
+		info1 := &models.Token{
+			ClientID:         "c1",
+			UserID:           "u1",
+			Access:           "a1",
+			AccessCreateAt:   time.Now(),
+			AccessExpiresIn:  time.Second * 30,
+			Refresh:          refresh,
+			RefreshCreateAt:  time.Now(),
+			RefreshExpiresIn: time.Minute,
+		}
+		err = st.Create(ctx, info1)
+		So(err, ShouldBeNil)
+
+		// Retrieve by refresh should point to first token
+		got1, err := st.GetByRefresh(ctx, refresh)
+		So(err, ShouldBeNil)
+		So(got1, ShouldNotBeNil)
+		So(got1.GetAccess(), ShouldEqual, "a1")
+
+		// Second issuance with same refresh triggers rotation
+		info2 := &models.Token{
+			ClientID:         "c1",
+			UserID:           "u1",
+			Access:           "a2",
+			AccessCreateAt:   time.Now(),
+			AccessExpiresIn:  time.Second * 30,
+			Refresh:          refresh,
+			RefreshCreateAt:  time.Now(),
+			RefreshExpiresIn: time.Minute,
+		}
+		err = st.Create(ctx, info2)
+		So(err, ShouldBeNil)
+
+		// Retrieve by refresh should now return the second token; previous mapping invalidated
+		got2, err := st.GetByRefresh(ctx, refresh)
+		So(err, ShouldBeNil)
+		So(got2, ShouldNotBeNil)
+		So(got2.GetAccess(), ShouldEqual, "a2")
+	})
+}
