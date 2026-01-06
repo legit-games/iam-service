@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-oauth2/oauth2/v4"
 	"github.com/go-oauth2/oauth2/v4/errors"
+	"github.com/go-oauth2/oauth2/v4/store"
 )
 
 // OAuth-related handlers and Swagger fragments
@@ -319,8 +320,69 @@ func (s *Server) HandleTokenRequest(w http.ResponseWriter, r *http.Request) erro
 	if err != nil {
 		return s.tokenError(w, err)
 	}
+	// enrich context for JWT generator: namespace and permissions resolver
+	ctx = context.WithValue(ctx, "ns", strings.ToUpper(strings.TrimSpace(FormValue(r, "ns"))))
+	ctx = context.WithValue(ctx, "perm_resolver", func(c context.Context, userID, ns string) []string {
+		// Resolve roles for user in namespace and flatten to permissions (string array)
+		var out []string
+		if s.userStore == nil {
+			return out
+		}
+		// Use a read DB
+		db, err := s.GetIAMReadDB()
+		if err != nil {
+			return out
+		}
+		roleStore := store.NewRoleStore(db)
+		roles, err := roleStore.ListRoleAssignmentsForUser(c, userID, ns)
+		if err != nil {
+			return out
+		}
+		for _, r := range roles {
+			if raw := r.Permissions; len(raw) > 0 {
+				var j any
+				if err := json.Unmarshal(raw, &j); err == nil {
+					switch vv := j.(type) {
+					case map[string]any:
+						if arr, ok := vv["permissions"].([]any); ok {
+							for _, v := range arr {
+								if s2, ok2 := v.(string); ok2 {
+									out = append(out, s2)
+								}
+							}
+						} else {
+							for k, v := range vv {
+								if b, okb := v.(bool); okb && b {
+									out = append(out, k)
+								}
+							}
+						}
+					case []any:
+						for _, v := range vv {
+							if s2, ok2 := v.(string); ok2 {
+								out = append(out, s2)
+							}
+						}
+					}
+				}
+			}
+		}
+		return out
+	})
+	return s.tokenWithContext(ctx, w, s.GetTokenData(ti), nil)
+}
 
-	return s.token(w, s.GetTokenData(ti), nil)
+// tokenWithContext is like token() but passes custom context to access token generator
+func (s *Server) tokenWithContext(ctx context.Context, w http.ResponseWriter, data map[string]interface{}, header map[string]string) error {
+	if header == nil {
+		header = map[string]string{}
+	}
+	for k, v := range header {
+		w.Header().Set(k, v)
+	}
+	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
+	w.WriteHeader(http.StatusOK)
+	return json.NewEncoder(w).Encode(data)
 }
 
 // GetAccessToken access token
@@ -342,6 +404,70 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 	// Ban enforcement: deny access token issuance if user is banned in namespace or account is banned.
 	// Determine namespace from request form (ns) or from issued token info for refresh.
 	ns := strings.ToUpper(strings.TrimSpace(FormValue(tgr.Request, "ns")))
+	if ns == "" {
+		if v := ctx.Value("ns"); v != nil {
+			if s2, ok := v.(string); ok {
+				ns = strings.ToUpper(strings.TrimSpace(s2))
+			}
+		}
+	}
+	// Build permission resolver: prefer ctx-provided resolver, else default DB-backed resolver
+	var permResolver func(context.Context, string, string) []string
+	if rv := ctx.Value("perm_resolver"); rv != nil {
+		if f, ok := rv.(func(context.Context, string, string) []string); ok {
+			permResolver = f
+		}
+	}
+	if permResolver == nil {
+		permResolver = func(c context.Context, userID, ns string) []string {
+			var out []string
+			if s.userStore == nil {
+				return out
+			}
+			db, err := s.GetIAMReadDB()
+			if err != nil {
+				return out
+			}
+			roleStore := store.NewRoleStore(db)
+			roles, err := roleStore.ListRoleAssignmentsForUser(c, userID, ns)
+			if err != nil {
+				return out
+			}
+			for _, r := range roles {
+				if raw := r.Permissions; len(raw) > 0 {
+					var j any
+					if err := json.Unmarshal(raw, &j); err == nil {
+						switch vv := j.(type) {
+						case map[string]any:
+							if arr, ok := vv["permissions"].([]any); ok {
+								for _, v := range arr {
+									if s2, ok2 := v.(string); ok2 {
+										out = append(out, s2)
+									}
+								}
+							} else {
+								for k, v := range vv {
+									if b, okb := v.(bool); okb && b {
+										out = append(out, k)
+									}
+								}
+							}
+						case []any:
+							for _, v := range vv {
+								if s2, ok2 := v.(string); ok2 {
+									out = append(out, s2)
+								}
+							}
+						}
+					}
+				}
+			}
+			return out
+		}
+	}
+	// inject into ctx for generator
+	ctx = context.WithValue(ctx, "ns", ns)
+	ctx = context.WithValue(ctx, "perm_resolver", permResolver)
 
 	switch gt {
 	case oauth2.AuthorizationCode:

@@ -79,6 +79,15 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.POST("/iam/v1/admin/accounts/:id/unban", RequireAuthorization("ADMIN:NAMESPACE:*:ACCOUNT", perm.UPDATE, nil), s.HandleUnbanAccountGin)
 	r.GET("/iam/v1/admin/accounts/:id/bans", RequireAuthorization("ADMIN:NAMESPACE:*:ACCOUNT", perm.READ, nil), s.HandleListAccountBansGin)
 
+	// Roles management
+	r.POST("/iam/v1/admin/namespaces/:ns/roles", RequireAuthorization("ADMIN:NAMESPACE:{ns}:ROLE", perm.CREATE, nil), s.HandleUpsertRoleGin)
+	r.GET("/iam/v1/admin/namespaces/:ns/roles", RequireAuthorization("ADMIN:NAMESPACE:{ns}:ROLE", perm.READ, nil), s.HandleListRolesGin)
+	r.DELETE("/iam/v1/admin/namespaces/:ns/roles/:id", RequireAuthorization("ADMIN:NAMESPACE:{ns}:ROLE", perm.DELETE, nil), s.HandleDeleteRoleGin)
+	// Assignments
+	r.POST("/iam/v1/admin/namespaces/:ns/roles/:id/users/:userId", RequireAuthorization("ADMIN:NAMESPACE:{ns}:ROLE", perm.UPDATE, nil), s.HandleAssignRoleToUserGin)
+	r.POST("/iam/v1/admin/namespaces/:ns/roles/:id/clients/:clientId", RequireAuthorization("ADMIN:NAMESPACE:{ns}:ROLE", perm.UPDATE, nil), s.HandleAssignRoleToClientGin)
+	r.POST("/iam/v1/admin/namespaces/:ns/roles/:id/assign-all-users", RequireAuthorization("ADMIN:NAMESPACE:{ns}:ROLE", perm.UPDATE, nil), s.HandleAssignRoleToAllUsersGin)
+
 	return r
 }
 
