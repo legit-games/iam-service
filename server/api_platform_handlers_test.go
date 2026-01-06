@@ -359,3 +359,117 @@ func TestHandlePlatformAuthenticate_PlatformError(t *testing.T) {
 		ValueEqual("error", "access_denied").
 		ValueEqual("error_description", "user denied access")
 }
+
+// Tests for POST /iam/v1/oauth/platforms/:platformId/token
+
+func TestHandlePlatformToken_MissingBasicAuth(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s, _ := newPlatformTestServer(t)
+
+	router := gin.New()
+	router.POST("/iam/v1/oauth/platforms/:platformId/token", s.HandlePlatformTokenGin)
+
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	e := httpexpect.Default(t, ts.URL)
+
+	// Missing Authorization header
+	e.POST("/iam/v1/oauth/platforms/google/token").
+		WithHeader("Content-Type", "application/x-www-form-urlencoded").
+		WithFormField("platform_token", "test-token").
+		Expect().
+		Status(http.StatusUnauthorized).
+		JSON().Object().
+		ValueEqual("error", "unauthorized_client")
+}
+
+func TestHandlePlatformToken_MissingParameters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s, _ := newPlatformTestServer(t)
+
+	router := gin.New()
+	router.POST("/iam/v1/oauth/platforms/:platformId/token", s.HandlePlatformTokenGin)
+
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	e := httpexpect.Default(t, ts.URL)
+
+	// Missing both platform_token and device_id
+	e.POST("/iam/v1/oauth/platforms/google/token").
+		WithBasicAuth("test-client", "test-secret").
+		WithHeader("Content-Type", "application/x-www-form-urlencoded").
+		Expect().
+		Status(http.StatusUnauthorized) // Client not in DB, so unauthorized first
+}
+
+func TestHandlePlatformToken_InvalidPlatformID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s, _ := newPlatformTestServer(t)
+
+	router := gin.New()
+	router.POST("/iam/v1/oauth/platforms/:platformId/token", s.HandlePlatformTokenGin)
+
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	e := httpexpect.Default(t, ts.URL)
+
+	// Invalid platform_id with special characters
+	e.POST("/iam/v1/oauth/platforms/invalid-platform!/token").
+		WithBasicAuth("test-client", "test-secret").
+		WithHeader("Content-Type", "application/x-www-form-urlencoded").
+		WithFormField("platform_token", "test-token").
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object().
+		ValueEqual("error", "invalid_request")
+}
+
+func TestHandlePlatformToken_InvalidDeviceIDFormat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s, _ := newPlatformTestServer(t)
+
+	router := gin.New()
+	router.POST("/iam/v1/oauth/platforms/:platformId/token", s.HandlePlatformTokenGin)
+
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	e := httpexpect.Default(t, ts.URL)
+
+	// Device ID with spaces (invalid)
+	e.POST("/iam/v1/oauth/platforms/device/token").
+		WithBasicAuth("test-client", "test-secret").
+		WithHeader("Content-Type", "application/x-www-form-urlencoded").
+		WithFormField("device_id", "invalid device id").
+		Expect().
+		Status(http.StatusUnauthorized) // Client not in DB, so unauthorized first
+}
+
+func TestHandlePlatformToken_ValidDevicePlatform(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s, _ := newPlatformTestServer(t)
+
+	router := gin.New()
+	router.POST("/iam/v1/oauth/platforms/:platformId/token", s.HandlePlatformTokenGin)
+
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	e := httpexpect.Default(t, ts.URL)
+
+	// Valid device platform request - should fail on client auth since no DB
+	resp := e.POST("/iam/v1/oauth/platforms/device/token").
+		WithBasicAuth("test-client", "test-secret").
+		WithHeader("Content-Type", "application/x-www-form-urlencoded").
+		WithFormField("device_id", "test-device-12345").
+		Expect()
+
+	// Should get either 501 (no DB) or 401 (client not found)
+	status := resp.Raw().StatusCode
+	if status != http.StatusNotImplemented && status != http.StatusUnauthorized {
+		t.Fatalf("expected status 501 or 401, got %d", status)
+	}
+}

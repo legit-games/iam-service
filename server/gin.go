@@ -101,6 +101,9 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.GET("/iam/v1/oauth/platforms/:platformId/authorize", s.HandlePlatformAuthorizeGin)
 	r.GET("/iam/v1/platforms/:platformId/authenticate", s.HandlePlatformAuthenticateGin)
 
+	// Platform token endpoint (public - client auth via Basic Auth)
+	r.POST("/iam/v1/oauth/platforms/:platformId/token", s.HandlePlatformTokenGin)
+
 	return r
 }
 

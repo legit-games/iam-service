@@ -5,8 +5,11 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-oauth2/oauth2/v4"
 	"github.com/go-oauth2/oauth2/v4/models"
 	"github.com/go-oauth2/oauth2/v4/platforms"
 	"github.com/go-oauth2/oauth2/v4/store"
@@ -426,12 +429,352 @@ func (s *Server) HandlePlatformAuthenticateGin(c *gin.Context) {
 
 	// For now, return a placeholder response
 	c.JSON(http.StatusOK, gin.H{
-		"message":     "platform authentication callback received",
-		"platform_id": platformID,
-		"request_id":  state,
-		"namespace":   authRequest.Namespace,
-		"client_id":   authRequest.ClientID,
+		"message":      "platform authentication callback received",
+		"platform_id":  platformID,
+		"request_id":   state,
+		"namespace":    authRequest.Namespace,
+		"client_id":    authRequest.ClientID,
 		"redirect_uri": authRequest.RedirectURI,
-		"note":        "token exchange not yet implemented",
+		"note":         "token exchange not yet implemented",
 	})
+}
+
+// Device ID validation regex (alphanumeric/dash/underscore, no whitespace, 1-256 chars)
+var deviceIDRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,256}$`)
+
+// HandlePlatformTokenGin handles platform token authentication.
+// Route: POST /iam/v1/oauth/platforms/:platformId/token
+// This endpoint:
+// 1. Authenticates the client via Basic Auth
+// 2. Verifies the platform token or device_id
+// 3. Links or creates a user account
+// 4. Returns IAM access tokens
+func (s *Server) HandlePlatformTokenGin(c *gin.Context) {
+	// Step 1: Extract platformId from path
+	platformID := strings.ToLower(strings.TrimSpace(c.Param("platformId")))
+	if platformID == "" || !platformIDRegex.MatchString(platformID) {
+		c.JSON(http.StatusBadRequest, models.PlatformTokenErrorResponse{
+			Error:            "invalid_request",
+			ErrorDescription: "invalid or missing platform_id",
+		})
+		return
+	}
+
+	// Step 2: Validate client credentials (Basic Auth)
+	clientID, clientSecret, err := ClientBasicHandler(c.Request)
+	if err != nil {
+		c.Header("WWW-Authenticate", `Basic realm="oauth2"`)
+		c.JSON(http.StatusUnauthorized, models.PlatformTokenErrorResponse{
+			Error:            "unauthorized_client",
+			ErrorDescription: "invalid client credentials",
+		})
+		return
+	}
+
+	// Get client info from database
+	db, err := s.GetIAMReadDB()
+	if err != nil {
+		if err == ErrUserDBDSNNotSet {
+			c.JSON(http.StatusNotImplemented, models.PlatformTokenErrorResponse{
+				Error:            "not_implemented",
+				ErrorDescription: "database not configured",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.PlatformTokenErrorResponse{
+			Error:            "server_error",
+			ErrorDescription: "unable to connect to database",
+		})
+		return
+	}
+
+	// Validate client exists and secret matches
+	clientStore := s.getDBClientStore()
+	clientInfo, err := clientStore.GetByID(c.Request.Context(), clientID)
+	if err != nil || clientInfo == nil {
+		c.JSON(http.StatusUnauthorized, models.PlatformTokenErrorResponse{
+			Error:            "unauthorized_client",
+			ErrorDescription: "invalid client credentials",
+		})
+		return
+	}
+	if clientInfo.GetSecret() != clientSecret {
+		c.JSON(http.StatusUnauthorized, models.PlatformTokenErrorResponse{
+			Error:            "unauthorized_client",
+			ErrorDescription: "invalid client credentials",
+		})
+		return
+	}
+
+	// Get namespace from client
+	namespace := ""
+	if ns, ok := clientInfo.(interface{ GetNamespace() string }); ok {
+		namespace = ns.GetNamespace()
+	}
+	if namespace == "" {
+		namespace = "DEFAULT"
+	}
+
+	// Step 3: Parse form body
+	var req models.PlatformTokenRequest
+	if err := c.ShouldBind(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.PlatformTokenErrorResponse{
+			Error:            "invalid_request",
+			ErrorDescription: "invalid request body",
+		})
+		return
+	}
+
+	// Validate: either platform_token OR device_id must be provided (mutually exclusive)
+	hasPlatformToken := strings.TrimSpace(req.PlatformToken) != ""
+	hasDeviceID := strings.TrimSpace(req.DeviceID) != ""
+
+	if !hasPlatformToken && !hasDeviceID {
+		c.JSON(http.StatusBadRequest, models.PlatformTokenErrorResponse{
+			Error:            "invalid_request",
+			ErrorDescription: "missing required parameter: platform_token or device_id",
+		})
+		return
+	}
+
+	// Validate device_id format if provided
+	if hasDeviceID {
+		deviceID := strings.TrimSpace(req.DeviceID)
+		if !deviceIDRegex.MatchString(deviceID) || hasWhitespace(deviceID) {
+			c.JSON(http.StatusBadRequest, models.PlatformTokenErrorResponse{
+				Error:            "invalid_request",
+				ErrorDescription: "invalid device_id format",
+			})
+			return
+		}
+	}
+
+	// Step 4: Get platform client configuration
+	platformClientStore := store.NewPlatformClientStore(db)
+	platformClient, err := platformClientStore.GetByNamespaceAndPlatform(c.Request.Context(), namespace, platformID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.PlatformTokenErrorResponse{
+			Error:            "server_error",
+			ErrorDescription: "unable to query platform configuration",
+		})
+		return
+	}
+
+	// For device-based platforms, platform client config is optional
+	isDevicePlatform := platformID == "device" || platformID == "android" || platformID == "ios"
+	if platformClient == nil && !isDevicePlatform {
+		c.JSON(http.StatusBadRequest, models.PlatformTokenErrorResponse{
+			Error:            "invalid_request",
+			ErrorDescription: "platform not configured for this namespace",
+			PlatformID:       platformID,
+		})
+		return
+	}
+
+	// Step 5: Verify platform token or handle device_id
+	var platformUserInfo *platforms.PlatformUserInfo
+
+	if hasDeviceID {
+		// Device-based authentication - use device_id directly
+		platformUserInfo = &platforms.PlatformUserInfo{
+			PlatformUserID: strings.TrimSpace(req.DeviceID),
+			DisplayName:    "Device User",
+		}
+	} else {
+		// Platform token verification
+		verifierRegistry := platforms.NewTokenVerifierRegistry()
+		verifier := verifierRegistry.Get(platformID)
+
+		// Use generic verifier for platforms with generic OAuth flow
+		if platformClient != nil && platformClient.GenericOauthFlow {
+			verifier = verifierRegistry.Get("generic")
+		}
+
+		platformUserInfo, err = verifier.VerifyToken(c.Request.Context(), platformClient, req.PlatformToken)
+		if err != nil {
+			switch err {
+			case platforms.ErrInvalidPlatformToken:
+				c.JSON(http.StatusUnauthorized, models.PlatformTokenErrorResponse{
+					Error:            "invalid_grant",
+					ErrorDescription: "invalid platform token",
+				})
+			case platforms.ErrPlatformUnavailable:
+				c.JSON(http.StatusServiceUnavailable, models.PlatformTokenErrorResponse{
+					Error:            "temporarily_unavailable",
+					ErrorDescription: "platform service is temporarily unavailable",
+				})
+			case platforms.ErrTokenExpired:
+				c.JSON(http.StatusUnauthorized, models.PlatformTokenErrorResponse{
+					Error:            "invalid_grant",
+					ErrorDescription: "platform token expired",
+				})
+			default:
+				c.JSON(http.StatusUnauthorized, models.PlatformTokenErrorResponse{
+					Error:            "invalid_grant",
+					ErrorDescription: "platform token verification failed",
+				})
+			}
+			return
+		}
+	}
+
+	// Step 6: Check if platform account is already linked
+	platformUserStore := store.NewPlatformUserStore(db)
+	linkedAccount, err := platformUserStore.GetPlatformAccountByPlatformUserID(
+		c.Request.Context(), namespace, platformID, platformUserInfo.PlatformUserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.PlatformTokenErrorResponse{
+			Error:            "server_error",
+			ErrorDescription: "unable to query platform account",
+		})
+		return
+	}
+
+	var userID string
+
+	if linkedAccount != nil {
+		// Account is already linked
+		userID = linkedAccount.UserID
+	} else {
+		// Account not linked
+		if !req.GetCreateHeadless() {
+			// Return not_linked error with linking token
+			linkingToken := models.LegitID()
+			c.JSON(http.StatusUnauthorized, models.PlatformTokenErrorResponse{
+				Error:            "not_linked",
+				ErrorDescription: "platform account not linked with Justice account",
+				PlatformID:       platformID,
+				LinkingToken:     linkingToken,
+				ClientID:         clientID,
+			})
+			return
+		}
+
+		// Create headless account
+		userStore := store.NewUserStore(db)
+		accountID := models.LegitID()
+		err = userStore.CreateHeadlessAccount(c.Request.Context(), accountID, namespace, platformID, platformUserInfo.PlatformUserID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.PlatformTokenErrorResponse{
+				Error:            "server_error",
+				ErrorDescription: "unable to create account",
+			})
+			return
+		}
+
+		// Create platform user link
+		platformUser := &models.PlatformUser{
+			UserID:         accountID,
+			Namespace:      namespace,
+			PlatformID:     platformID,
+			PlatformUserID: platformUserInfo.PlatformUserID,
+			DisplayName:    platformUserInfo.DisplayName,
+			EmailAddress:   platformUserInfo.Email,
+			AvatarURL:      platformUserInfo.AvatarURL,
+		}
+		if err := platformUserStore.CreatePlatformAccount(c.Request.Context(), platformUser); err != nil {
+			c.JSON(http.StatusInternalServerError, models.PlatformTokenErrorResponse{
+				Error:            "server_error",
+				ErrorDescription: "unable to link platform account",
+			})
+			return
+		}
+
+		userID = accountID
+	}
+
+	// Step 7: Check for user bans
+	userStore := store.NewUserStore(db)
+	banned, err := userStore.IsUserBannedByAccount(c.Request.Context(), userID, namespace)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.PlatformTokenErrorResponse{
+			Error:            "server_error",
+			ErrorDescription: "unable to check user ban status",
+		})
+		return
+	}
+	if banned {
+		c.JSON(http.StatusForbidden, models.PlatformTokenErrorResponse{
+			Error:            "access_denied",
+			ErrorDescription: "user is banned from login",
+			UserBan: &models.Ban{
+				Reason: "Account banned",
+			},
+		})
+		return
+	}
+
+	// Step 8: Generate access token
+	tgr := &oauth2.TokenGenerateRequest{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		UserID:       userID,
+		Request:      c.Request,
+	}
+
+	ti, genErr := s.Manager.GenerateAccessToken(c.Request.Context(), oauth2.PasswordCredentials, tgr)
+	if genErr != nil {
+		c.JSON(http.StatusInternalServerError, models.PlatformTokenErrorResponse{
+			Error:            "server_error",
+			ErrorDescription: "token generation failed",
+		})
+		return
+	}
+
+	// Step 9: Build response
+	response := models.PlatformTokenResponse{
+		AccessToken:    ti.GetAccess(),
+		RefreshToken:   ti.GetRefresh(),
+		ExpiresIn:      int(ti.GetAccessExpiresIn() / time.Second),
+		TokenType:      "Bearer",
+		UserID:         userID,
+		PlatformID:     platformID,
+		PlatformUserID: platformUserInfo.PlatformUserID,
+		DisplayName:    platformUserInfo.DisplayName,
+		Namespace:      namespace,
+		JusticeFlags:   0,
+		IsComply:       true,
+		Scope:          ti.GetScope(),
+	}
+
+	// Add XUID for Xbox platforms
+	if platformID == "live" || platformID == "xblweb" {
+		response.XUID = platformUserInfo.XUID
+	}
+
+	// Set cookies if not skipped
+	if !req.SkipSetCookie {
+		http.SetCookie(c.Writer, &http.Cookie{
+			Name:     "access_token",
+			Value:    ti.GetAccess(),
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   int(ti.GetAccessExpiresIn() / time.Second),
+		})
+		if ti.GetRefresh() != "" {
+			http.SetCookie(c.Writer, &http.Cookie{
+				Name:     "refresh_token",
+				Value:    ti.GetRefresh(),
+				Path:     "/",
+				HttpOnly: true,
+				Secure:   true,
+				SameSite: http.SameSiteLaxMode,
+				MaxAge:   int(ti.GetRefreshExpiresIn() / time.Second),
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// hasWhitespace checks if a string contains any whitespace characters.
+func hasWhitespace(s string) bool {
+	for _, r := range s {
+		if unicode.IsSpace(r) {
+			return true
+		}
+	}
+	return false
 }
