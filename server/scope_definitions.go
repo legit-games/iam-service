@@ -38,6 +38,11 @@ const (
 	// Token Management Scopes
 	ScopeTokenIntrospect = "token:introspect"
 	ScopeTokenRevoke     = "token:revoke"
+
+	// Platform Management Scopes
+	ScopePlatformRead  = "platform:read"
+	ScopePlatformWrite = "platform:write"
+	ScopePlatformAdmin = "platform:admin"
 )
 
 // Scope requirements for each API endpoint group
@@ -98,4 +103,9 @@ var EndpointScopes = map[string]ScopeRequirement{
 	"namespace:create": {Required: []string{ScopeNamespaceWrite, ScopeAdmin}},
 	"namespace:update": {Required: []string{ScopeNamespaceWrite, ScopeAdmin}},
 	"namespace:delete": {Required: []string{ScopeNamespaceAdmin, ScopeAdmin}},
+
+	// Platform Management Endpoints
+	"platform:token:get": {Required: []string{ScopePlatformRead, ScopeAdmin}},
+	"platform:link":      {Required: []string{ScopePlatformWrite, ScopeAdmin}},
+	"platform:unlink":    {Required: []string{ScopePlatformWrite, ScopeAdmin}},
 }

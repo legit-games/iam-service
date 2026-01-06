@@ -18,6 +18,13 @@ type AppConfig struct {
 	Env      string         `koanf:"env"`
 	Database DatabaseConfig `koanf:"database"`
 	Migrate  MigrateConfig  `koanf:"migrate"`
+	Valkey   ValkeyConfig   `koanf:"valkey"`
+}
+
+// ValkeyConfig holds Valkey/Redis configuration.
+type ValkeyConfig struct {
+	Addr   string `koanf:"addr"`
+	Prefix string `koanf:"prefix"`
 }
 
 type DatabaseConfig struct {
@@ -222,4 +229,29 @@ func (c *AppConfig) MigrateOptionsFromConfig() (enabled bool, driver string, dsn
 		}
 	}
 	return
+}
+
+// ValkeyAddr returns the Valkey/Redis address for token caching.
+func (c *AppConfig) ValkeyAddr() string {
+	if c != nil && c.Valkey.Addr != "" {
+		return strings.TrimSpace(c.Valkey.Addr)
+	}
+	if v := strings.TrimSpace(os.Getenv("VALKEY_ADDR")); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(os.Getenv("REDIS_ADDR")); v != "" {
+		return v
+	}
+	return ""
+}
+
+// ValkeyPrefix returns the Valkey/Redis key prefix.
+func (c *AppConfig) ValkeyPrefix() string {
+	if c != nil && c.Valkey.Prefix != "" {
+		return strings.TrimSpace(c.Valkey.Prefix)
+	}
+	if v := strings.TrimSpace(os.Getenv("VALKEY_PREFIX")); v != "" {
+		return v
+	}
+	return "iam:"
 }

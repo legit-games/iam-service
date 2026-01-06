@@ -93,6 +93,10 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.POST("/iam/v1/admin/namespaces/:ns/roles/:id/clients/:clientId", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeRoleAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:ROLE", permission.UPDATE), s.HandleAssignRoleToClientGin)
 	r.POST("/iam/v1/admin/namespaces/:ns/roles/:id/assign-all-users", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeRoleAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:ROLE", permission.UPDATE), s.HandleAssignRoleToAllUsersGin)
 
+	// Platform token management
+	r.GET("/iam/v1/oauth/admin/namespaces/:ns/users/:userId/platforms/:platformId/platformToken", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER:{userId}", permission.READ), s.HandleGetPlatformTokenGin)
+	r.GET("/iam/v1/oauth/admin/namespaces/:ns/users/:userId/platforms", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER:{userId}", permission.READ), s.HandleListPlatformAccountsGin)
+
 	return r
 }
 
