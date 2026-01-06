@@ -17,6 +17,7 @@ type JWTAccessClaims struct {
 	jwt.RegisteredClaims
 	ClientID    string   `json:"client_id,omitempty"`
 	Permissions []string `json:"permissions,omitempty"`
+	Scope       string   `json:"scope,omitempty"` // Space-separated scopes per RFC 6749
 }
 
 // Valid claims verification
@@ -52,6 +53,7 @@ func (a *JWTAccessGenerate) Token(ctx context.Context, data *oauth2.GenerateBasi
 			ExpiresAt: jwt.NewNumericDate(data.TokenInfo.GetAccessCreateAt().Add(data.TokenInfo.GetAccessExpiresIn())),
 		},
 		ClientID: data.Client.GetID(),
+		Scope:    data.TokenInfo.GetScope(), // Include OAuth scopes in JWT
 	}
 
 	// Collect permissions

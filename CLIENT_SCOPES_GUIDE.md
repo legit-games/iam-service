@@ -1,0 +1,253 @@
+# Client Scopes Implementation Guide
+
+This document explains the OAuth 2.0 client scopes functionality that has been added to the system.
+
+## Overview
+
+OAuth 2.0 scopes provide a way to limit access to protected resources by specifying what permissions a client is allowed to request. This implementation adds full scope support to both clients and access tokens.
+
+## Features
+
+### ✅ **Client Scope Management**
+- Clients can have a list of allowed scopes
+- Scopes are stored in the database as JSON arrays
+- API endpoints for managing client scopes
+- Scope validation during token requests
+
+### ✅ **JWT Access Token Integration** 
+- Access tokens include requested scopes per RFC 6749
+- Scopes appear as space-separated string in `scope` JWT claim
+- Compatible with existing permission-based authorization
+
+### ✅ **Scope Validation**
+- Token requests validate that requested scopes are within client's allowed scopes
+- Backwards compatible - allows all scopes if none configured
+- Proper error responses for invalid scope requests
+
+## Database Schema
+
+The `oauth2_clients` table now includes a `scopes` column:
+
+```sql
+ALTER TABLE oauth2_clients ADD COLUMN scopes JSONB DEFAULT '[]'::jsonb;
+CREATE INDEX idx_oauth2_clients_scopes ON oauth2_clients USING gin (scopes);
+```
+
+## API Endpoints
+
+### **Create/Update Client with Scopes**
+```bash
+POST /iam/v1/admin/namespaces/{namespace}/clients
+Content-Type: application/json
+
+{
+  "id": "my-client",
+  "secret": "client-secret", 
+  "domain": "https://example.com",
+  "scopes": ["read", "write", "admin"]
+}
+```
+
+### **Update Client Scopes**
+```bash
+PUT /iam/v1/admin/clients/{client_id}/scopes
+Content-Type: application/json
+
+{
+  "scopes": ["read", "write", "profile"]
+}
+```
+
+### **Update Client Scopes by Namespace**
+```bash
+PUT /iam/v1/admin/namespaces/{namespace}/clients/{client_id}/scopes
+Content-Type: application/json
+
+{
+  "scopes": ["read", "write"]
+}
+```
+
+### **Get Client with Scopes**
+```bash
+GET /iam/v1/admin/clients/{client_id}
+
+Response:
+{
+  "id": "my-client",
+  "domain": "https://example.com", 
+  "public": false,
+  "namespace": "MY_NAMESPACE",
+  "permissions": ["USERS_READ", "ACCOUNTS_WRITE"],
+  "scopes": ["read", "write", "admin"]
+}
+```
+
+## OAuth 2.0 Token Flows
+
+### **Client Credentials with Scopes**
+```bash
+POST /oauth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id=my-client&client_secret=secret&scope=read write
+```
+
+**Response:**
+```json
+{
+  "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+  "token_type": "Bearer",
+  "expires_in": 7200,
+  "scope": "read write"
+}
+```
+
+**JWT Claims:**
+```json
+{
+  "aud": ["my-client"],
+  "client_id": "my-client",
+  "scope": "read write",
+  "exp": 1767715500
+}
+```
+
+### **Password Grant with Scopes**
+```bash
+POST /oauth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&username=user&password=pass&client_id=my-client&client_secret=secret&scope=read&ns=MY_NAMESPACE
+```
+
+**JWT Claims include both scopes and permissions:**
+```json
+{
+  "aud": ["my-client"],
+  "sub": "user-123",
+  "client_id": "my-client", 
+  "scope": "read",
+  "permissions": ["USERS_READ", "ACCOUNTS_WRITE"],
+  "exp": 1767715500
+}
+```
+
+## Error Handling
+
+### **Invalid Scope Request**
+```bash
+POST /oauth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id=my-client&client_secret=secret&scope=read invalid_scope
+```
+
+**Response:**
+```json
+{
+  "error": "invalid_request",
+  "error_description": "..."
+}
+```
+
+## Scope Validation Rules
+
+1. **No Scopes Configured**: All scopes are allowed (backwards compatibility)
+2. **Scopes Configured**: Only configured scopes are allowed
+3. **Empty Scope Request**: Always allowed
+4. **Invalid Scope Format**: Scopes must match `[A-Za-z0-9:._-]+`
+5. **Unauthorized Scope**: Returns `invalid_request` error
+
+## Integration Examples
+
+### **Resource Server Authorization**
+
+When validating access tokens, extract scopes from JWT:
+
+```go
+func validateToken(tokenString string) (*Claims, error) {
+    token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+        return []byte("secret"), nil
+    })
+    
+    if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+        scopes := strings.Fields(claims["scope"].(string))
+        permissions := claims["permissions"].([]interface{})
+        
+        // Use scopes for OAuth-style authorization
+        // Use permissions for role-based authorization
+        return &Claims{
+            Scopes: scopes,
+            Permissions: permissions,
+        }, nil
+    }
+    
+    return nil, errors.New("invalid token")
+}
+```
+
+### **Client Registration**
+
+```go
+// Create client with specific scopes
+client := &models.Client{
+    ID: "mobile-app",
+    Secret: "mobile-secret", 
+    Domain: "com.example.mobile://callback",
+    Scopes: []string{"profile", "read:posts", "write:posts"},
+}
+
+err := clientStore.Upsert(ctx, client)
+```
+
+## Migration Guide
+
+### **Existing Clients**
+- Existing clients will have `scopes: []` (empty array)
+- Empty scopes allows all scope requests (backwards compatible)
+- No immediate action required for existing implementations
+
+### **Recommended Migration Steps**
+1. **Deploy the update** - No breaking changes
+2. **Audit existing clients** - Review what scopes they should have
+3. **Configure scopes** - Set appropriate scopes for each client
+4. **Update client applications** - Start requesting specific scopes
+5. **Monitor and adjust** - Fine-tune scope assignments as needed
+
+## Best Practices
+
+### **Scope Design**
+- Use meaningful scope names: `read:posts`, `write:profile`, `admin:users`
+- Keep scopes granular but not overly complex
+- Use namespacing for different resource types
+- Document scope meanings for client developers
+
+### **Client Configuration**
+- Assign minimal necessary scopes to each client
+- Review and audit client scopes regularly
+- Use namespace-specific scope management for multi-tenant setups
+- Combine with permissions for fine-grained authorization
+
+### **Security Considerations**
+- Validate scopes at both token issuance and resource access
+- Log scope usage for audit and debugging
+- Revoke or update client scopes when access requirements change
+- Use HTTPS for all OAuth 2.0 flows
+
+## Testing
+
+The implementation includes comprehensive tests:
+- Scope validation during token requests
+- JWT token generation with scopes
+- API endpoint functionality
+- Backwards compatibility verification
+
+Run tests with:
+```bash
+go test ./server -run TestClientScopes -v
+```
+
+## Conclusion
+
+The client scopes implementation provides a robust foundation for OAuth 2.0 scope-based authorization while maintaining backwards compatibility with existing permission-based systems. The dual approach allows for flexible authorization strategies depending on your application's needs.

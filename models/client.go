@@ -49,6 +49,8 @@ type Client struct {
 	Namespace string
 	// Permissions assigned to this OAuth client (applied to client_credentials tokens)
 	Permissions []string
+	// Scopes that this client is allowed to request
+	Scopes []string
 }
 
 // GetID client id
@@ -78,6 +80,9 @@ func (c *Client) GetUserID() string {
 
 // GetPermissions returns the permissions assigned to this client.
 func (c *Client) GetPermissions() []string { return c.Permissions }
+
+// GetScopes returns the scopes this client is allowed to request.
+func (c *Client) GetScopes() []string { return c.Scopes }
 
 // GetNamespace returns the namespace this client belongs to.
 func (c *Client) GetNamespace() string { return c.Namespace }

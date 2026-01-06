@@ -7,7 +7,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-oauth2/oauth2/v4/errors"
 	"github.com/go-oauth2/oauth2/v4/models"
-	"github.com/go-oauth2/oauth2/v4/store"
 )
 
 // Client registration/upsert and permission management (admin endpoints)
@@ -20,10 +19,15 @@ type UpsertClientRequest struct {
 	Public      bool     `json:"public"`
 	Namespace   string   `json:"namespace"`
 	Permissions []string `json:"permissions"`
+	Scopes      []string `json:"scopes"`
 }
 
 type UpdateClientPermissionsRequest struct {
 	Permissions []string `json:"permissions" binding:"required"`
+}
+
+type UpdateClientScopesRequest struct {
+	Scopes []string `json:"scopes" binding:"required"`
 }
 
 // HandleUpsertClientGin creates or updates a client record.
@@ -38,7 +42,7 @@ func (s *Server) HandleUpsertClientGin(c *gin.Context) {
 		return
 	}
 	cliStore := s.getDBClientStore()
-	if err := cliStore.Upsert(c.Request.Context(), &models.Client{ID: req.ID, Secret: req.Secret, Domain: req.Domain, UserID: req.UserID, Public: req.Public, Namespace: req.Namespace, Permissions: req.Permissions}); err != nil {
+	if err := cliStore.Upsert(c.Request.Context(), &models.Client{ID: req.ID, Secret: req.Secret, Domain: req.Domain, UserID: req.UserID, Public: req.Public, Namespace: req.Namespace, Permissions: req.Permissions, Scopes: req.Scopes}); err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
@@ -65,6 +69,26 @@ func (s *Server) HandleUpdateClientPermissionsGin(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"id": clientID, "permissions": req.Permissions})
 }
 
+// HandleUpdateClientScopesGin replaces scopes for a client.
+func (s *Server) HandleUpdateClientScopesGin(c *gin.Context) {
+	if _, err := s.GetPrimaryDB(); err != nil {
+		c.JSON(http.StatusServiceUnavailable, errorResponse(err))
+		return
+	}
+	clientID := c.Param("id")
+	var req UpdateClientScopesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+	cliStore := s.getDBClientStore()
+	if err := cliStore.UpdateScopes(c.Request.Context(), clientID, req.Scopes); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"id": clientID, "scopes": req.Scopes})
+}
+
 // HandleGetClientGin returns a single client by id.
 func (s *Server) HandleGetClientGin(c *gin.Context) {
 	if _, err := s.GetPrimaryDB(); err != nil {
@@ -86,6 +110,7 @@ func (s *Server) HandleGetClientGin(c *gin.Context) {
 		"public":      r.Public,
 		"namespace":   r.Namespace,
 		"permissions": r.Permissions,
+		"scopes":      r.Scopes,
 	})
 }
 
@@ -154,7 +179,7 @@ func (s *Server) HandleUpsertClientByNamespaceGin(c *gin.Context) {
 	// Override request namespace with path namespace for safety
 	req.Namespace = ns
 	cliStore := s.getDBClientStore()
-	if err := cliStore.Upsert(c.Request.Context(), &models.Client{ID: req.ID, Secret: req.Secret, Domain: req.Domain, UserID: req.UserID, Public: req.Public, Namespace: req.Namespace, Permissions: req.Permissions}); err != nil {
+	if err := cliStore.Upsert(c.Request.Context(), &models.Client{ID: req.ID, Secret: req.Secret, Domain: req.Domain, UserID: req.UserID, Public: req.Public, Namespace: req.Namespace, Permissions: req.Permissions, Scopes: req.Scopes}); err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
@@ -189,12 +214,6 @@ func (s *Server) HandleUpdateClientPermissionsByNamespaceGin(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"id": clientID, "namespace": ns, "permissions": req.Permissions})
-}
-
-// helper: get DB client store
-func (s *Server) getDBClientStore() *store.DBClientStore {
-	db, _ := s.GetPrimaryDB()
-	return store.NewDBClientStore(db)
 }
 
 // Keep existing 501 for dynamic registration if route not used
