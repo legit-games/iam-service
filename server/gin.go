@@ -93,9 +93,13 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.POST("/iam/v1/admin/namespaces/:ns/roles/:id/clients/:clientId", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeRoleAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:ROLE", permission.UPDATE), s.HandleAssignRoleToClientGin)
 	r.POST("/iam/v1/admin/namespaces/:ns/roles/:id/assign-all-users", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeRoleAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:ROLE", permission.UPDATE), s.HandleAssignRoleToAllUsersGin)
 
-	// Platform token management
+	// Platform token management (admin)
 	r.GET("/iam/v1/oauth/admin/namespaces/:ns/users/:userId/platforms/:platformId/platformToken", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER:{userId}", permission.READ), s.HandleGetPlatformTokenGin)
 	r.GET("/iam/v1/oauth/admin/namespaces/:ns/users/:userId/platforms", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER:{userId}", permission.READ), s.HandleListPlatformAccountsGin)
+
+	// Platform OAuth authorization flow (public - no auth required)
+	r.GET("/iam/v1/oauth/platforms/:platformId/authorize", s.HandlePlatformAuthorizeGin)
+	r.GET("/iam/v1/platforms/:platformId/authenticate", s.HandlePlatformAuthenticateGin)
 
 	return r
 }
