@@ -127,6 +127,9 @@ type Server struct {
 	// OIDC signing state
 	kid     string
 	privKey *rsa.PrivateKey
+
+	// App configuration
+	appConfig *Config
 }
 
 func (s *Server) ensureOIDCKeys() error {
@@ -218,6 +221,96 @@ func (s *Server) GetIAMWriteDB() (*gorm.DB, error) {
 	}
 	s.userWrite = db
 	return db, nil
+}
+
+// LoadAppConfig loads the application configuration
+func LoadAppConfig() (*Config, error) {
+	// For testing purposes, return a default config
+	// In production, this would load from actual config files
+	return &Config{
+		TokenType:            "Bearer",
+		AllowedResponseTypes: []oauth2.ResponseType{oauth2.Code, oauth2.Token},
+		AllowedGrantTypes: []oauth2.GrantType{
+			oauth2.AuthorizationCode,
+			oauth2.PasswordCredentials,
+			oauth2.ClientCredentials,
+			oauth2.Refreshing,
+		},
+		OIDCEnabled: false,
+		RefreshRotation: RefreshRotationConfig{
+			GenerateNew:        true,
+			ResetTime:          true,
+			RemoveOldAccess:    true,
+			RemoveOldRefresh:   true,
+			AccessExpOverride:  0,
+			RefreshExpOverride: 0,
+		},
+	}, nil
+}
+
+// Initialize initializes the server with configuration and database connections
+func (s *Server) Initialize() error {
+	// Load configuration
+	cfg, err := LoadAppConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	s.appConfig = cfg
+
+	// Initialize database connections
+	err = s.initializeDatabases()
+	if err != nil {
+		return fmt.Errorf("failed to initialize databases: %w", err)
+	}
+
+	// Initialize OAuth manager if not already set
+	if s.Manager == nil {
+		m := manage.NewDefaultManager()
+		m.MustTokenStorage(store.NewMemoryTokenStore())
+
+		// Setup client store from database
+		if db, err := s.GetPrimaryDB(); err == nil {
+			m.MapClientStorage(store.NewDBClientStore(db))
+		}
+
+		s.Manager = m
+	}
+
+	// Set default configuration if not already set
+	if s.Config == nil {
+		s.Config = &Config{
+			TokenType:            "Bearer",
+			AllowedResponseTypes: []oauth2.ResponseType{oauth2.Code, oauth2.Token},
+			AllowedGrantTypes: []oauth2.GrantType{
+				oauth2.AuthorizationCode,
+				oauth2.PasswordCredentials,
+				oauth2.ClientCredentials,
+				oauth2.Refreshing,
+			},
+		}
+	}
+
+	// Setup default handlers
+	s.SetClientInfoHandler(ClientFormHandler)
+
+	return nil
+}
+
+// initializeDatabases initializes database connections
+func (s *Server) initializeDatabases() error {
+	// This will trigger the lazy initialization of databases
+	_, err := s.GetPrimaryDB()
+	if err != nil {
+		return fmt.Errorf("failed to initialize primary DB: %w", err)
+	}
+
+	// Initialize stores if DB is available
+	if db, err := s.GetPrimaryDB(); err == nil {
+		s.nsStore = store.NewNamespaceStore(db)
+		s.userStore = store.NewUserStore(db)
+	}
+
+	return nil
 }
 
 func (s *Server) handleError(w http.ResponseWriter, req *AuthorizeRequest, err error) error {

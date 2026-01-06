@@ -284,6 +284,10 @@ func (s *Server) ValidationTokenRequest(r *http.Request) (oauth2.GrantType, *oau
 		// no preflight error here; manager will decide based on stored code_challenge
 	case oauth2.PasswordCredentials:
 		tgr.Scope = r.FormValue("scope")
+		// Validate requested scopes against client's allowed scopes
+		if err := s.ValidateClientScopes(r.Context(), clientID, tgr.Scope); err != nil {
+			return "", nil, err
+		}
 		username, password := r.FormValue("username"), r.FormValue("password")
 		if username == "" || password == "" {
 			return "", nil, errors.ErrInvalidRequest
@@ -297,6 +301,10 @@ func (s *Server) ValidationTokenRequest(r *http.Request) (oauth2.GrantType, *oau
 		tgr.UserID = userID
 	case oauth2.ClientCredentials:
 		tgr.Scope = r.FormValue("scope")
+		// Validate requested scopes against client's allowed scopes
+		if err := s.ValidateClientScopes(r.Context(), clientID, tgr.Scope); err != nil {
+			return "", nil, err
+		}
 	case oauth2.Refreshing:
 		tgr.Refresh, err = s.RefreshTokenResolveHandler(r)
 		tgr.Scope = r.FormValue("scope")
@@ -577,6 +585,48 @@ func (s *Server) CheckGrantType(gt oauth2.GrantType) bool {
 		}
 	}
 	return false
+}
+
+// ValidateClientScopes checks if the requested scopes are allowed for the client
+func (s *Server) ValidateClientScopes(ctx context.Context, clientID string, requestedScopes string) error {
+	if requestedScopes == "" {
+		return nil // No scopes requested is always valid
+	}
+
+	// Get client information
+	client, err := s.Manager.GetClient(ctx, clientID)
+	if err != nil {
+		return err
+	}
+
+	// Check if client implements GetScopes
+	scopesGetter, ok := client.(interface{ GetScopes() []string })
+	if !ok {
+		// Client doesn't implement scopes - allow all for backwards compatibility
+		return nil
+	}
+
+	allowedScopes := scopesGetter.GetScopes()
+	if len(allowedScopes) == 0 {
+		// No scopes configured - allow all for backwards compatibility
+		return nil
+	}
+
+	// Parse requested scopes (space-separated)
+	requestedScopeList := strings.Fields(requestedScopes)
+	allowedScopeMap := make(map[string]bool)
+	for _, scope := range allowedScopes {
+		allowedScopeMap[scope] = true
+	}
+
+	// Check each requested scope
+	for _, scope := range requestedScopeList {
+		if !allowedScopeMap[scope] {
+			return errors.ErrInvalidScope
+		}
+	}
+
+	return nil
 }
 
 // HandleRevocationRequest implements RFC 7009 Token Revocation.

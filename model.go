@@ -15,6 +15,8 @@ type (
 		GetUserID() string
 		// Optional: client-level permissions for client_credentials tokens
 		GetPermissions() []string
+		// Optional: scopes that this client is allowed to request
+		GetScopes() []string
 	}
 
 	// ClientPasswordVerifier the password handler interface
