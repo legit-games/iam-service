@@ -65,12 +65,13 @@ func (a *JWTAccessGenerate) Token(ctx context.Context, data *oauth2.GenerateBasi
 		}
 	} else {
 		// 2) user token -> use resolver from context with provided namespace
-		if resolver, ok := ctx.Value("perm_resolver").(func(context.Context, string, string) []string); ok {
-			if ns, ok2 := ctx.Value("ns").(string); ok2 && ns != "" {
-				perms := resolver(ctx, data.UserID, ns)
-				if len(perms) > 0 {
-					claims.Permissions = append([]string(nil), perms...)
-				}
+		resolver, hasResolver := ctx.Value("perm_resolver").(func(context.Context, string, string) []string)
+		ns, hasNs := ctx.Value("ns").(string)
+
+		if hasResolver && hasNs && ns != "" {
+			perms := resolver(ctx, data.UserID, ns)
+			if len(perms) > 0 {
+				claims.Permissions = append([]string(nil), perms...)
 			}
 		}
 	}

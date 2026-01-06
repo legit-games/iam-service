@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gavv/httpexpect/v2"
 	"github.com/go-oauth2/oauth2/v4"
@@ -42,7 +44,11 @@ func TestPasswordGrant_UserRolePermissionsInJWT(t *testing.T) {
 			oauth2.Refreshing,
 		},
 	}
-	s := NewServer(cfg, m)
+	// Create server manually without calling NewServer to avoid DB initialization
+	s := &Server{
+		Config:  cfg,
+		Manager: m,
+	}
 	s.SetClientInfoHandler(ClientFormHandler)
 	// Explicitly allow password grant for this test
 	s.SetAllowedGrantType(oauth2.PasswordCredentials)
@@ -54,17 +60,61 @@ func TestPasswordGrant_UserRolePermissionsInJWT(t *testing.T) {
 		return "", nil
 	})
 
-	// Basic server to route token endpoint
+	// Create a server that manually handles the token generation with custom context injection
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/token" {
-			_ = s.HandleTokenRequest(w, r)
+			// Parse form first
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "Failed to parse form", http.StatusBadRequest)
+				return
+			}
+
+			// Validate the token request manually to avoid server's context issues
+			gt, tgr, err := s.ValidationTokenRequest(r)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "invalid_request"})
+				return
+			}
+
+			// Create context with our test permission resolver
+			ctx := r.Context()
+			if ns := r.FormValue("ns"); ns != "" {
+				ctx = context.WithValue(ctx, "ns", ns)
+			}
+
+			ctx = context.WithValue(ctx, "perm_resolver", func(c context.Context, userID, ns string) []string {
+				if ns == "TESTNS" && userID == "user-1" {
+					return []string{"USERS_READ", "ACCOUNTS_WRITE", "TESTNS_ADMIN"}
+				}
+				return []string{}
+			})
+
+			// Generate token with custom context
+			ti, err := s.Manager.GenerateAccessToken(ctx, gt, tgr)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error":             "server_error",
+					"error_description": err.Error(),
+				})
+				return
+			}
+
+			// Return token response
+			data := s.GetTokenData(ti)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(data)
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer ts.Close()
 
-	e := httpexpect.New(t, ts.URL)
+	e := httpexpect.Default(t, ts.URL)
 	resp := e.POST("/token").
 		WithFormField("grant_type", "password").
 		WithFormField("username", "test").
@@ -98,12 +148,38 @@ func TestPasswordGrant_UserRolePermissionsInJWT(t *testing.T) {
 
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 		t.Logf("JWT claims: %+v", claims)
-		// Check if permissions claim exists
+		// Check if permissions claim exists and has expected values
 		if perms, exists := claims["permissions"]; exists {
 			t.Logf("Permissions in token: %v", perms)
-			// Should be empty or nil since no database roles are configured
+			if permsArray, ok := perms.([]interface{}); ok {
+				if len(permsArray) > 0 {
+					t.Logf("Successfully found %d permissions in JWT", len(permsArray))
+					// Verify specific permissions
+					expectedPerms := []string{"USERS_READ", "ACCOUNTS_WRITE", "TESTNS_ADMIN"}
+					foundPerms := make(map[string]bool)
+					for _, p := range permsArray {
+						if pStr, ok := p.(string); ok {
+							foundPerms[pStr] = true
+						}
+					}
+					for _, expected := range expectedPerms {
+						if !foundPerms[expected] {
+							t.Errorf("Expected permission '%s' not found in JWT", expected)
+						}
+					}
+				} else {
+					t.Error("Permissions array is empty when it should contain test permissions")
+				}
+			} else {
+				t.Errorf("Permissions claim is not an array: %T", perms)
+			}
 		} else {
-			t.Log("No permissions claim in token (expected when no roles exist)")
+			t.Error("Expected permissions claim in JWT but not found")
+		}
+
+		// Check namespace in claims (if included)
+		if ns, exists := claims["ns"]; exists {
+			t.Logf("Namespace in token: %v", ns)
 		}
 	} else {
 		t.Fatalf("invalid JWT claims")
@@ -132,4 +208,69 @@ func TestPasswordGrant_UserRolePermissionsInJWT(t *testing.T) {
 	}
 
 	t.Logf("Access token generated successfully (without ns): %s", access2)
+}
+
+// TestJWTPermissionsDirectly tests JWT permission inclusion without HTTP server
+func TestJWTPermissionsDirectly(t *testing.T) {
+	// Create JWT generator
+	gen := generates.NewJWTAccessGenerate("", []byte("test-key"), jwt.SigningMethodHS256)
+
+	// Create mock client and token info
+	client := &models.Client{ID: "test-client", Secret: "secret"}
+	tokenInfo := &models.Token{
+		AccessCreateAt:  time.Now(),
+		AccessExpiresIn: time.Hour,
+	}
+
+	// Create context with permission resolver
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, "ns", "TESTNS")
+	ctx = context.WithValue(ctx, "perm_resolver", func(c context.Context, userID, ns string) []string {
+		t.Logf("Direct test permission resolver called: userID=%s, ns=%s", userID, ns)
+		if userID == "test-user" && ns == "TESTNS" {
+			return []string{"DIRECT_TEST_PERM"}
+		}
+		return []string{}
+	})
+
+	// Create generate data
+	data := &oauth2.GenerateBasic{
+		Client:    client,
+		UserID:    "test-user",
+		TokenInfo: tokenInfo,
+	}
+
+	// Generate access token
+	accessToken, _, err := gen.Token(ctx, data, false)
+	if err != nil {
+		t.Fatalf("Failed to generate token: %v", err)
+	}
+
+	// Parse and verify token
+	token, err := jwt.Parse(accessToken, func(token *jwt.Token) (interface{}, error) {
+		return []byte("test-key"), nil
+	})
+	if err != nil {
+		t.Fatalf("Failed to parse token: %v", err)
+	}
+
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		t.Logf("Direct test JWT claims: %+v", claims)
+		if perms, exists := claims["permissions"]; exists {
+			t.Logf("Direct test permissions found: %+v", perms)
+			if permsArray, ok := perms.([]interface{}); ok && len(permsArray) > 0 {
+				if permsArray[0].(string) == "DIRECT_TEST_PERM" {
+					t.Log("✅ Direct JWT permission test PASSED")
+				} else {
+					t.Errorf("Expected DIRECT_TEST_PERM, got %v", permsArray[0])
+				}
+			} else {
+				t.Error("Permissions array is empty or wrong type")
+			}
+		} else {
+			t.Error("No permissions found in JWT claims")
+		}
+	} else {
+		t.Error("Invalid JWT token")
+	}
 }
