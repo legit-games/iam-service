@@ -18,43 +18,47 @@ import (
 
 // TestClientScopes_TokenGeneration tests that scopes are properly included in JWT access tokens
 func TestClientScopes_TokenGeneration(t *testing.T) {
-	// Clear database configuration to ensure test works without DB
-	t.Setenv("CONFIG_DIR", "/tmp/nonexistent")
-	t.Setenv("IAM_DATABASE__IAM__READ__DSN", "")
-	t.Setenv("IAM_DATABASE__IAM__WRITE__DSN", "")
+	// Use real test database
+	t.Setenv("APP_ENV", "test")
 
-	// Create JWT access generator
+	// Create server and initialize with database
+	s := &Server{}
+	err := s.Initialize()
+	if err != nil {
+		t.Fatalf("Failed to initialize server: %v", err)
+	}
+
+	// Setup JWT access generator
 	m := manage.NewDefaultManager()
 	m.MustTokenStorage(store.NewMemoryTokenStore())
 	m.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("test-key"), jwt.SigningMethodHS256))
 
-	// Setup client store with scopes
-	cliStore := store.NewClientStore()
-	client := &models.Client{
-		ID:     "test-client",
-		Secret: "secret",
-		Scopes: []string{"read", "write", "admin"},
+	// Get database and setup client store
+	db, err := s.GetPrimaryDB()
+	if err != nil {
+		t.Fatalf("Failed to get database: %v", err)
 	}
-	_ = cliStore.Set("test-client", client)
+
+	cliStore := store.NewDBClientStore(db)
 	m.MapClientStorage(cliStore)
 
-	// Create server config
-	cfg := &Config{
-		TokenType:            "Bearer",
-		AllowedResponseTypes: []oauth2.ResponseType{oauth2.Code, oauth2.Token},
-		AllowedGrantTypes: []oauth2.GrantType{
-			oauth2.AuthorizationCode,
-			oauth2.PasswordCredentials,
-			oauth2.ClientCredentials,
-			oauth2.Refreshing,
-		},
+	// Create test client in database
+	client := &models.Client{
+		ID:        "test-client",
+		Secret:    "secret",
+		Scopes:    []string{"read", "write", "admin"},
+		Namespace: "TESTNS",
+		Public:    false,
+	}
+	ctx := context.Background()
+	err = cliStore.Upsert(ctx, client)
+	if err != nil {
+		t.Fatalf("Failed to create test client: %v", err)
 	}
 
-	// Create server manually to bypass DB initialization
-	s := &Server{
-		Config:  cfg,
-		Manager: m,
-	}
+	// Update server manager
+	s.Manager = m
+
 	s.SetClientInfoHandler(ClientFormHandler)
 	s.SetAllowedGrantType(oauth2.PasswordCredentials)
 	s.SetAllowedGrantType(oauth2.ClientCredentials)

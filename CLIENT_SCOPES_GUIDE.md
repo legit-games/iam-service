@@ -151,6 +151,66 @@ grant_type=client_credentials&client_id=my-client&client_secret=secret&scope=rea
 }
 ```
 
+### **Insufficient Scope (403 Forbidden)**
+```bash
+GET /iam/v1/admin/clients/my-client
+Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
+```
+
+**Response when token lacks required scope:**
+```json
+{
+  "error": "insufficient_scope",
+  "error_description": "token lacks required scope",
+  "scope": "client:read admin"
+}
+```
+
+## Scope-Based Authorization
+
+Each API endpoint is protected by specific scope requirements. Access tokens must contain the required scopes to access protected endpoints.
+
+### **Endpoint Scope Requirements**
+
+| Endpoint | Required Scopes | Description |
+|----------|----------------|-------------|
+| `GET /iam/v1/admin/clients` | `client:read` OR `admin` | List all clients |
+| `GET /iam/v1/admin/clients/:id` | `client:read` OR `admin` | Get specific client |
+| `POST /iam/v1/admin/namespaces/:ns/clients` | `client:write` OR `admin` | Create client in namespace |
+| `PUT /iam/v1/admin/clients/:id/scopes` | `client:admin` OR `admin` | Update client scopes |
+| `DELETE /iam/v1/admin/clients/:id` | `client:admin` OR `admin` | Delete client |
+| `POST /oauth/introspect` | `token:introspect` OR `admin` | Introspect token |
+| `POST /oauth/revoke` | `token:revoke` OR `admin` | Revoke token |
+| `GET /oauth/userinfo` | `profile` | Get user profile (OIDC) |
+
+### **Scope Hierarchy**
+
+The system supports a scope hierarchy where `admin` scope grants access to all endpoints:
+
+1. **admin** - Super scope that grants access to all endpoints
+2. **{resource}:admin** - Admin access to specific resource type
+3. **{resource}:write** - Write access to specific resource type  
+4. **{resource}:read** - Read access to specific resource type
+
+**Example Resource Scopes:**
+- `client:read`, `client:write`, `client:admin`
+- `user:read`, `user:write`, `user:admin`
+- `role:read`, `role:write`, `role:admin`
+- `account:read`, `account:write`, `account:admin`
+- `namespace:read`, `namespace:write`, `namespace:admin`
+
+### **Multiple Scope Logic**
+
+Endpoints use **OR logic** for scope requirements - the client needs at least one of the listed scopes:
+
+```go
+// This endpoint requires EITHER client:read OR admin scope
+r.GET("/clients", s.RequireAnyScope("client:read", "admin"), handler)
+
+// This endpoint requires ALL listed scopes (AND logic)  
+r.GET("/sensitive", s.RequireAllScopes("client:admin", "user:admin"), handler)
+```
+
 ## Scope Validation Rules
 
 1. **No Scopes Configured**: All scopes are allowed (backwards compatibility)
@@ -184,6 +244,67 @@ func validateToken(tokenString string) (*Claims, error) {
     }
     
     return nil, errors.New("invalid token")
+}
+
+// Check if token has required scope
+func hasScope(userScopes []string, requiredScope string) bool {
+    for _, scope := range userScopes {
+        if scope == requiredScope || scope == "admin" {
+            return true
+        }
+    }
+    return false
+}
+```
+
+### **API Gateway Integration**
+
+For API gateways or reverse proxies, you can validate scopes before forwarding requests:
+
+```go
+func scopeMiddleware(requiredScopes []string) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        authHeader := r.Header.Get("Authorization")
+        if authHeader == "" {
+            http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+            return
+        }
+
+        tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+        token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+            return []byte("your-secret"), nil
+        })
+
+        if err != nil || !token.Valid {
+            http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+            return
+        }
+
+        claims := token.Claims.(jwt.MapClaims)
+        tokenScopes := strings.Fields(claims["scope"].(string))
+
+        // Check if token has any required scope
+        hasRequiredScope := false
+        for _, required := range requiredScopes {
+            for _, userScope := range tokenScopes {
+                if userScope == required || userScope == "admin" {
+                    hasRequiredScope = true
+                    break
+                }
+            }
+            if hasRequiredScope {
+                break
+            }
+        }
+
+        if !hasRequiredScope {
+            http.Error(w, `{"error":"insufficient_scope"}`, http.StatusForbidden)
+            return
+        }
+
+        // Continue to next handler
+        next.ServeHTTP(w, r)
+    }
 }
 ```
 

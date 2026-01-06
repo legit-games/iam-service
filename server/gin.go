@@ -30,7 +30,7 @@ func NewGinEngine(s *Server) *gin.Engine {
 		r.GET("/oauth/token", ginFrom(s.HandleTokenRequest))
 	}
 
-	// Introspect & Revoke (keep standard handler)
+	// Introspect & Revoke (no scope required - standard OAuth 2.0 client auth only)
 	r.POST("/oauth/introspect", ginFrom(s.HandleIntrospectionRequest))
 	r.POST("/oauth/revoke", ginFrom(s.HandleRevocationRequest))
 
@@ -38,9 +38,9 @@ func NewGinEngine(s *Server) *gin.Engine {
 	if s.Config != nil && s.Config.OIDCEnabled {
 		r.GET("/.well-known/openid-configuration", ginFrom(s.HandleOIDCDiscovery))
 		r.GET("/.well-known/jwks.json", ginFrom(s.HandleOIDCJWKS))
-		r.GET("/oauth/userinfo", ginFrom(s.HandleOIDCUserInfo))
+		r.GET("/oauth/userinfo", s.RequireAnyScope(ScopeProfile), ginFrom(s.HandleOIDCUserInfo))
 		// POST userinfo is also valid per spec
-		r.POST("/oauth/userinfo", ginFrom(s.HandleOIDCUserInfo))
+		r.POST("/oauth/userinfo", s.RequireAnyScope(ScopeProfile), ginFrom(s.HandleOIDCUserInfo))
 	}
 
 	// Swagger endpoints (Gin-native)
@@ -51,47 +51,47 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.POST("/iam/v1/public/login", s.HandleAPILoginGin)
 	r.POST("/iam/v1/public/users", s.HandleAPIRegisterUserGin)
 
-	// Namespace & Account management APIs (Gin-native)
-	r.POST("/iam/v1/admin/namespaces", RequireAuthorization("ADMIN:NAMESPACE:*", permission.CREATE, nil), s.handleCreateNamespace)
-	r.POST("/iam/v1/accounts/head", RequireAuthorization("ADMIN:NAMESPACE:*:USER", permission.CREATE, nil), s.handleCreateHeadAccount)
-	r.POST("/iam/v1/accounts/headless", RequireAuthorization("ADMIN:NAMESPACE:*:USER", permission.CREATE, nil), s.handleCreateHeadlessAccount)
-	r.POST("/iam/v1/accounts/:id/link", RequireAuthorization("ADMIN:NAMESPACE:*:USER", permission.UPDATE, nil), s.handleLinkAccount)
-	r.POST("/iam/v1/accounts/:id/unlink", RequireAuthorization("ADMIN:NAMESPACE:*:USER", permission.UPDATE, nil), s.handleUnlinkAccount)
+	// Namespace & Account management APIs (Scope + Permission)
+	r.POST("/iam/v1/admin/namespaces", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeNamespaceWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*", permission.CREATE), s.handleCreateNamespace)
+	r.POST("/iam/v1/accounts/head", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.CREATE), s.handleCreateHeadAccount)
+	r.POST("/iam/v1/accounts/headless", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.CREATE), s.handleCreateHeadlessAccount)
+	r.POST("/iam/v1/accounts/:id/link", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.UPDATE), s.handleLinkAccount)
+	r.POST("/iam/v1/accounts/:id/unlink", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.UPDATE), s.handleUnlinkAccount)
 
-	// Admin: client upsert and permissions (namespace required)
-	r.POST("/iam/v1/admin/namespaces/:ns/clients", RequireAuthorization("ADMIN:NAMESPACE:{ns}:CLIENT", permission.CREATE, nil), s.HandleUpsertClientByNamespaceGin)
-	r.PUT("/iam/v1/admin/namespaces/:ns/clients/:id/permissions", RequireAuthorization("ADMIN:NAMESPACE:{ns}:CLIENT", permission.UPDATE, nil), s.HandleUpdateClientPermissionsByNamespaceGin)
-	r.PUT("/iam/v1/admin/namespaces/:ns/clients/:id/scopes", RequireAuthorization("ADMIN:NAMESPACE:{ns}:CLIENT", permission.UPDATE, nil), s.HandleUpdateClientScopesByNamespaceGin)
+	// Admin: client upsert and permissions (Scope + Permission)
+	r.POST("/iam/v1/admin/namespaces/:ns/clients", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeClientWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:CLIENT", permission.CREATE), s.HandleUpsertClientByNamespaceGin)
+	r.PUT("/iam/v1/admin/namespaces/:ns/clients/:id/permissions", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeClientAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:CLIENT", permission.UPDATE), s.HandleUpdateClientPermissionsByNamespaceGin)
+	r.PUT("/iam/v1/admin/namespaces/:ns/clients/:id/scopes", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeClientAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:CLIENT", permission.UPDATE), s.HandleUpdateClientScopesByNamespaceGin)
 	// Global client scopes endpoint (admin only)
-	r.PUT("/iam/v1/admin/clients/:id/scopes", RequireAuthorization("ADMIN:NAMESPACE:*:CLIENT", permission.UPDATE, nil), s.HandleUpdateClientScopesGin)
+	r.PUT("/iam/v1/admin/clients/:id/scopes", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeClientAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:CLIENT", permission.UPDATE), s.HandleUpdateClientScopesGin)
 	// Admin: client read/list/delete
-	r.GET("/iam/v1/admin/clients/:id", RequireAuthorization("ADMIN:NAMESPACE:*:CLIENT", permission.READ, nil), s.HandleGetClientGin)
-	r.GET("/iam/v1/admin/clients", RequireAuthorization("ADMIN:NAMESPACE:*:CLIENT", permission.READ, nil), s.HandleListClientsGin)
+	r.GET("/iam/v1/admin/clients/:id", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeClientRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:CLIENT", permission.READ), s.HandleGetClientGin)
+	r.GET("/iam/v1/admin/clients", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeClientRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:CLIENT", permission.READ), s.HandleListClientsGin)
 	// list clients by namespace
-	r.GET("/iam/v1/admin/namespaces/:ns/clients", RequireAuthorization("ADMIN:NAMESPACE:{ns}:CLIENT", permission.READ, nil), s.HandleListClientsByNamespaceGin)
-	r.DELETE("/iam/v1/admin/clients/:id", RequireAuthorization("ADMIN:NAMESPACE:*:CLIENT", permission.DELETE, nil), s.HandleDeleteClientGin)
+	r.GET("/iam/v1/admin/namespaces/:ns/clients", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeClientRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:CLIENT", permission.READ), s.HandleListClientsByNamespaceGin)
+	r.DELETE("/iam/v1/admin/clients/:id", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeClientAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:CLIENT", permission.DELETE), s.HandleDeleteClientGin)
 
 	// Admin: add permissions to an account (Gin-native)
 	// r.POST("/iam/v1/admin/accounts/:accountId/permissions", s.HandleAPIAddAccountPermissionsGin)
-	// Admin: ban/unban user in namespace
-	r.POST("/iam/v1/admin/namespaces/:ns/users/:id/ban", RequireAuthorization("ADMIN:NAMESPACE:{ns}:USER", permission.UPDATE, nil), s.HandleBanUserGin)
-	r.POST("/iam/v1/admin/namespaces/:ns/users/:id/unban", RequireAuthorization("ADMIN:NAMESPACE:{ns}:USER", permission.UPDATE, nil), s.HandleUnbanUserGin)
+	// Admin: ban/unban user in namespace (Scope + Permission)
+	r.POST("/iam/v1/admin/namespaces/:ns/users/:id/ban", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeUserAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER", permission.UPDATE), s.HandleBanUserGin)
+	r.POST("/iam/v1/admin/namespaces/:ns/users/:id/unban", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeUserAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER", permission.UPDATE), s.HandleUnbanUserGin)
 	// Admin: list bans
-	r.GET("/iam/v1/admin/namespaces/:ns/users/:id/bans", RequireAuthorization("ADMIN:NAMESPACE:{ns}:USER", permission.READ, nil), s.HandleListUserBansGin)
-	r.GET("/iam/v1/admin/namespaces/:ns/bans", RequireAuthorization("ADMIN:NAMESPACE:{ns}:USER", permission.READ, nil), s.HandleListNamespaceBansGin)
+	r.GET("/iam/v1/admin/namespaces/:ns/users/:id/bans", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeUserRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER", permission.READ), s.HandleListUserBansGin)
+	r.GET("/iam/v1/admin/namespaces/:ns/bans", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeUserRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER", permission.READ), s.HandleListNamespaceBansGin)
 	// Admin: account-level ban/unban
-	r.POST("/iam/v1/admin/accounts/:id/ban", RequireAuthorization("ADMIN:NAMESPACE:*:ACCOUNT", permission.UPDATE, nil), s.HandleBanAccountGin)
-	r.POST("/iam/v1/admin/accounts/:id/unban", RequireAuthorization("ADMIN:NAMESPACE:*:ACCOUNT", permission.UPDATE, nil), s.HandleUnbanAccountGin)
-	r.GET("/iam/v1/admin/accounts/:id/bans", RequireAuthorization("ADMIN:NAMESPACE:*:ACCOUNT", permission.READ, nil), s.HandleListAccountBansGin)
+	r.POST("/iam/v1/admin/accounts/:id/ban", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.UPDATE), s.HandleBanAccountGin)
+	r.POST("/iam/v1/admin/accounts/:id/unban", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.UPDATE), s.HandleUnbanAccountGin)
+	r.GET("/iam/v1/admin/accounts/:id/bans", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.READ), s.HandleListAccountBansGin)
 
-	// Roles management
-	r.POST("/iam/v1/admin/namespaces/:ns/roles", RequireAuthorization("ADMIN:NAMESPACE:{ns}:ROLE", permission.CREATE, nil), s.HandleUpsertRoleGin)
-	r.GET("/iam/v1/admin/namespaces/:ns/roles", RequireAuthorization("ADMIN:NAMESPACE:{ns}:ROLE", permission.READ, nil), s.HandleListRolesGin)
-	r.DELETE("/iam/v1/admin/namespaces/:ns/roles/:id", RequireAuthorization("ADMIN:NAMESPACE:{ns}:ROLE", permission.DELETE, nil), s.HandleDeleteRoleGin)
+	// Roles management (Scope + Permission)
+	r.POST("/iam/v1/admin/namespaces/:ns/roles", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeRoleWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:ROLE", permission.CREATE), s.HandleUpsertRoleGin)
+	r.GET("/iam/v1/admin/namespaces/:ns/roles", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeRoleRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:ROLE", permission.READ), s.HandleListRolesGin)
+	r.DELETE("/iam/v1/admin/namespaces/:ns/roles/:id", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeRoleAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:ROLE", permission.DELETE), s.HandleDeleteRoleGin)
 	// Assignments
-	r.POST("/iam/v1/admin/namespaces/:ns/roles/:id/users/:userId", RequireAuthorization("ADMIN:NAMESPACE:{ns}:ROLE", permission.UPDATE, nil), s.HandleAssignRoleToUserGin)
-	r.POST("/iam/v1/admin/namespaces/:ns/roles/:id/clients/:clientId", RequireAuthorization("ADMIN:NAMESPACE:{ns}:ROLE", permission.UPDATE, nil), s.HandleAssignRoleToClientGin)
-	r.POST("/iam/v1/admin/namespaces/:ns/roles/:id/assign-all-users", RequireAuthorization("ADMIN:NAMESPACE:{ns}:ROLE", permission.UPDATE, nil), s.HandleAssignRoleToAllUsersGin)
+	r.POST("/iam/v1/admin/namespaces/:ns/roles/:id/users/:userId", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeRoleAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:ROLE", permission.UPDATE), s.HandleAssignRoleToUserGin)
+	r.POST("/iam/v1/admin/namespaces/:ns/roles/:id/clients/:clientId", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeRoleAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:ROLE", permission.UPDATE), s.HandleAssignRoleToClientGin)
+	r.POST("/iam/v1/admin/namespaces/:ns/roles/:id/assign-all-users", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeRoleAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:ROLE", permission.UPDATE), s.HandleAssignRoleToAllUsersGin)
 
 	return r
 }
