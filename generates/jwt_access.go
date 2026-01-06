@@ -54,10 +54,22 @@ func (a *JWTAccessGenerate) Token(ctx context.Context, data *oauth2.GenerateBasi
 		ClientID: data.Client.GetID(),
 	}
 
-	// If no user (client_credentials), attach client permissions when available
+	// Collect permissions
+	// 1) client credentials (no user) -> include client permissions
 	if data.UserID == "" {
 		if permsGetter, ok := any(data.Client).(interface{ GetPermissions() []string }); ok {
 			perms := permsGetter.GetPermissions()
+			if len(perms) > 0 {
+				claims.Permissions = append([]string(nil), perms...)
+			}
+		}
+	} else {
+		// 2) user token -> use resolver from context with provided namespace
+		resolver, hasResolver := ctx.Value("perm_resolver").(func(context.Context, string, string) []string)
+		ns, hasNs := ctx.Value("ns").(string)
+
+		if hasResolver && hasNs && ns != "" {
+			perms := resolver(ctx, data.UserID, ns)
 			if len(perms) > 0 {
 				claims.Permissions = append([]string(nil), perms...)
 			}
@@ -118,10 +130,5 @@ func (a *JWTAccessGenerate) isRsOrPS() bool {
 	return isRs || isPs
 }
 
-func (a *JWTAccessGenerate) isHs() bool {
-	return strings.HasPrefix(a.SignedMethod.Alg(), "HS")
-}
-
-func (a *JWTAccessGenerate) isEd() bool {
-	return strings.HasPrefix(a.SignedMethod.Alg(), "Ed")
-}
+func (a *JWTAccessGenerate) isHs() bool { return strings.HasPrefix(a.SignedMethod.Alg(), "HS") }
+func (a *JWTAccessGenerate) isEd() bool { return strings.HasPrefix(a.SignedMethod.Alg(), "Ed") }

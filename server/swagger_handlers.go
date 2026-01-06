@@ -191,6 +191,78 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Account bans list"}, "401": map[string]interface{}{"description": "Unauthorized"}},
 				},
 			},
+			"/iam/v1/admin/namespaces/{ns}/roles": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Create or update a role in a namespace",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:ROLE_CREATE. Note: Namespace name must be uppercase A–Z only.",
+					"parameters":  []map[string]interface{}{{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}}},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"name":        map[string]interface{}{"type": "string"},
+							"roleType":    map[string]interface{}{"type": "string", "enum": []string{"USER", "CLIENT"}},
+							"permissions": map[string]interface{}{"type": "object", "additionalProperties": true},
+							"description": map[string]interface{}{"type": "string"},
+						}, "required": []string{"name", "roleType"}}}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
+				},
+				"get": map[string]interface{}{
+					"summary":     "List roles in a namespace",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:ROLE_READ.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "roleType", "in": "query", "schema": map[string]interface{}{"type": "string", "enum": []string{"USER", "CLIENT"}}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
+				},
+			},
+			"/iam/v1/admin/namespaces/{ns}/roles/{id}": map[string]interface{}{
+				"delete": map[string]interface{}{
+					"summary":     "Delete a role",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:ROLE_DELETE.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
+				},
+			},
+			"/iam/v1/admin/namespaces/{ns}/roles/{id}/users/{userId}": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Assign role to a user",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:ROLE_UPDATE.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "userId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
+				},
+			},
+			"/iam/v1/admin/namespaces/{ns}/roles/{id}/clients/{clientId}": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Assign role to a client",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:ROLE_UPDATE.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "clientId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
+				},
+			},
+			"/iam/v1/admin/namespaces/{ns}/roles/{id}/assign-all-users": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Assign role to all users in a namespace",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:ROLE_UPDATE.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
+				},
+			},
 		},
 		"components": map[string]interface{}{"securitySchemes": map[string]interface{}{"basicAuth": map[string]interface{}{"type": "http", "scheme": "basic"}}},
 	}
@@ -272,6 +344,110 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 								delete(props, "actor_id")
 							}
 						}
+					}
+				}
+			}
+		}
+	}
+	if p, ok := paths["/iam/v1/admin/accounts/{id}/ban"].(map[string]interface{}); ok {
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["description"] = "Requires ADMIN:NAMESPACE:*:ACCOUNT UPDATE. Bans an entire account with PERMANENT or TIMED ban. Actor is derived from the caller's access token."
+			if rb, ok3 := post["requestBody"].(map[string]interface{}); ok3 {
+				if content, ok4 := rb["content"].(map[string]interface{}); ok4 {
+					if appjson, ok5 := content["application/json"].(map[string]interface{}); ok5 {
+						if schema, ok6 := appjson["schema"].(map[string]interface{}); ok6 {
+							if props, ok7 := schema["properties"].(map[string]interface{}); ok7 {
+								delete(props, "actor_id")
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if p, ok := paths["/iam/v1/admin/accounts/{id}/unban"].(map[string]interface{}); ok {
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["description"] = "Requires ADMIN:NAMESPACE:*:ACCOUNT UPDATE. Removes an account's ban. Actor is derived from the caller's access token."
+			if rb, ok3 := post["requestBody"].(map[string]interface{}); ok3 {
+				if content, ok4 := rb["content"].(map[string]interface{}); ok4 {
+					if appjson, ok5 := content["application/json"].(map[string]interface{}); ok5 {
+						if schema, ok6 := appjson["schema"].(map[string]interface{}); ok6 {
+							if props, ok7 := schema["properties"].(map[string]interface{}); ok7 {
+								delete(props, "actor_id")
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if p, ok := paths["/iam/v1/admin/namespaces/{ns}/roles"].(map[string]interface{}); ok {
+		// annotate GET
+		if get, ok2 := p["get"].(map[string]interface{}); ok2 {
+			get["description"] = "Requires ADMIN:NAMESPACE:{ns}:ROLE_READ."
+			if params, ok3 := get["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
+					}
+				}
+			}
+		}
+		// annotate POST
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["description"] = "Requires ADMIN:NAMESPACE:{ns}:ROLE_CREATE. Note: Namespace name must be uppercase A–Z only."
+			if params, ok3 := post["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
+					}
+				}
+			}
+		}
+	}
+	if p, ok := paths["/iam/v1/admin/namespaces/{ns}/roles/{id}"].(map[string]interface{}); ok {
+		if delete, ok2 := p["delete"].(map[string]interface{}); ok2 {
+			delete["description"] = "Requires ADMIN:NAMESPACE:{ns}:ROLE_DELETE."
+			if params, ok3 := delete["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
+					}
+				}
+			}
+		}
+	}
+	if p, ok := paths["/iam/v1/admin/namespaces/{ns}/roles/{id}/users/{userId}"].(map[string]interface{}); ok {
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["description"] = "Requires ADMIN:NAMESPACE:{ns}:ROLE_UPDATE."
+			if params, ok3 := post["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
+					}
+				}
+			}
+		}
+	}
+	if p, ok := paths["/iam/v1/admin/namespaces/{ns}/roles/{id}/clients/{clientId}"].(map[string]interface{}); ok {
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["description"] = "Requires ADMIN:NAMESPACE:{ns}:ROLE_UPDATE."
+			if params, ok3 := post["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
+					}
+				}
+			}
+		}
+	}
+	if p, ok := paths["/iam/v1/admin/namespaces/{ns}/roles/{id}/assign-all-users"].(map[string]interface{}); ok {
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["description"] = "Requires ADMIN:NAMESPACE:{ns}:ROLE_UPDATE."
+			if params, ok3 := post["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
 					}
 				}
 			}
@@ -495,6 +671,78 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Account bans list"}, "401": map[string]interface{}{"description": "Unauthorized"}},
 				},
 			},
+			"/iam/v1/admin/namespaces/{ns}/roles": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Create or update a role in a namespace",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:ROLE_CREATE. Note: Namespace name must be uppercase A–Z only.",
+					"parameters":  []map[string]interface{}{{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}}},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"name":        map[string]interface{}{"type": "string"},
+							"roleType":    map[string]interface{}{"type": "string", "enum": []string{"USER", "CLIENT"}},
+							"permissions": map[string]interface{}{"type": "object", "additionalProperties": true},
+							"description": map[string]interface{}{"type": "string"},
+						}, "required": []string{"name", "roleType"}}}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
+				},
+				"get": map[string]interface{}{
+					"summary":     "List roles in a namespace",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:ROLE_READ.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "roleType", "in": "query", "schema": map[string]interface{}{"type": "string", "enum": []string{"USER", "CLIENT"}}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
+				},
+			},
+			"/iam/v1/admin/namespaces/{ns}/roles/{id}": map[string]interface{}{
+				"delete": map[string]interface{}{
+					"summary":     "Delete a role",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:ROLE_DELETE.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
+				},
+			},
+			"/iam/v1/admin/namespaces/{ns}/roles/{id}/users/{userId}": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Assign role to a user",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:ROLE_UPDATE.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "userId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
+				},
+			},
+			"/iam/v1/admin/namespaces/{ns}/roles/{id}/clients/{clientId}": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Assign role to a client",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:ROLE_UPDATE.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "clientId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
+				},
+			},
+			"/iam/v1/admin/namespaces/{ns}/roles/{id}/assign-all-users": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Assign role to all users in a namespace",
+					"description": "Requires ADMIN:NAMESPACE:{ns}:ROLE_UPDATE.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
+				},
+			},
 		},
 		"components": map[string]interface{}{"securitySchemes": map[string]interface{}{"basicAuth": map[string]interface{}{"type": "http", "scheme": "basic"}}},
 	}
@@ -606,6 +854,78 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 								delete(props, "actor_id")
 							}
 						}
+					}
+				}
+			}
+		}
+	}
+	if p, ok := paths["/iam/v1/admin/namespaces/{ns}/roles"].(map[string]interface{}); ok {
+		// annotate GET
+		if get, ok2 := p["get"].(map[string]interface{}); ok2 {
+			get["description"] = "Requires ADMIN:NAMESPACE:{ns}:ROLE_READ."
+			if params, ok3 := get["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
+					}
+				}
+			}
+		}
+		// annotate POST
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["description"] = "Requires ADMIN:NAMESPACE:{ns}:ROLE_CREATE. Note: Namespace name must be uppercase A–Z only."
+			if params, ok3 := post["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
+					}
+				}
+			}
+		}
+	}
+	if p, ok := paths["/iam/v1/admin/namespaces/{ns}/roles/{id}"].(map[string]interface{}); ok {
+		if delete, ok2 := p["delete"].(map[string]interface{}); ok2 {
+			delete["description"] = "Requires ADMIN:NAMESPACE:{ns}:ROLE_DELETE."
+			if params, ok3 := delete["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
+					}
+				}
+			}
+		}
+	}
+	if p, ok := paths["/iam/v1/admin/namespaces/{ns}/roles/{id}/users/{userId}"].(map[string]interface{}); ok {
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["description"] = "Requires ADMIN:NAMESPACE:{ns}:ROLE_UPDATE."
+			if params, ok3 := post["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
+					}
+				}
+			}
+		}
+	}
+	if p, ok := paths["/iam/v1/admin/namespaces/{ns}/roles/{id}/clients/{clientId}"].(map[string]interface{}); ok {
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["description"] = "Requires ADMIN:NAMESPACE:{ns}:ROLE_UPDATE."
+			if params, ok3 := post["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
+					}
+				}
+			}
+		}
+	}
+	if p, ok := paths["/iam/v1/admin/namespaces/{ns}/roles/{id}/assign-all-users"].(map[string]interface{}); ok {
+		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
+			post["description"] = "Requires ADMIN:NAMESPACE:{ns}:ROLE_UPDATE."
+			if params, ok3 := post["parameters"].([]map[string]interface{}); ok3 {
+				for i := range params {
+					if params[i]["name"] == "ns" {
+						params[i]["description"] = "Namespace (uppercase A–Z only)."
 					}
 				}
 			}

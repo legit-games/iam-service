@@ -5,6 +5,8 @@
 REG_DB_DSN_DEFAULT=postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable
 VALKEY_ADDR_DEFAULT=127.0.0.1:6379
 SERVER_PORT?=9096
+# Default DSN for migrations (falls back to REG_DB_DSN_DEFAULT)
+MIGRATE_DSN?=$(REG_DB_DSN_DEFAULT)
 
 # Start PostgreSQL service defined in docker-compose.yml
 db:
@@ -108,6 +110,18 @@ register:
 	  -d '{"redirect_uris":["http://localhost:9094/callback"],"client_name":"My App","token_endpoint_auth_method":"client_secret_basic"}' \
 	  http://localhost:$(SERVER_PORT)/iam/v1/oauth/clients
 
+# Build migrate CLI binary
+migrate-build:
+	@mkdir -p bin
+	go build -o bin/migrate ./migrate/cmd
+	chmod +x bin/migrate
+
+# Run DB migrations (goose up) using migrate CLI
+migrate-up: migrate-build
+	@echo "Running DB migrations..."
+	MIGRATE_ON_START=1 MIGRATE_DRIVER=postgres MIGRATE_DSN=$(MIGRATE_DSN) MIGRATE_CMD=up bin/migrate
+	@echo "Migrations completed."
+
 build: build-server build-client
 	@echo "Built both server and client."
 
@@ -115,7 +129,20 @@ build: build-server build-client
 SHELL := /bin/bash
 .SHELLFLAGS := -lc
 
-# Run full test suite ensuring DB is restarted fresh
-test: db-down db db-wait
-	env APP_ENV=test
-	go test ./... -v
+# Verbose shell when VERBOSE=1
+ifeq ($(VERBOSE),1)
+.SHELLFLAGS := -lc -x
+endif
+
+# Run full test suite ensuring DB is restarted fresh and capture logs
+test: db-down db db-wait migrate-up
+	@echo "Running tests with fresh DB and latest migrations..."
+	env APP_ENV=test go test ./... -v -count=1
+	@echo "Test logs captured to test.out"
+
+# Focused verbose server tests
+.PHONY: test-verbose
+test-verbose: db-down db db-wait migrate-up
+	@echo "Running server package tests with verbose logs..."
+	env APP_ENV=test go test ./server -v -count=1
+	@echo "Server test logs captured to server.test.out"
