@@ -251,3 +251,111 @@ func TestHandleListPlatformAccounts_NoDatabaseOrEmpty(t *testing.T) {
 		resp.JSON().Object().ContainsKey("platforms")
 	}
 }
+
+func TestHandlePlatformAuthorize_MissingRequestID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s, _ := newPlatformTestServer(t)
+
+	router := gin.New()
+	router.GET("/iam/v1/oauth/platforms/:platformId/authorize", s.HandlePlatformAuthorizeGin)
+
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	e := httpexpect.Default(t, ts.URL)
+
+	// Missing request_id
+	e.GET("/iam/v1/oauth/platforms/google/authorize").
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object().
+		ValueEqual("error", "invalid_request").
+		ValueEqual("error_description", "request_id parameter is required")
+}
+
+func TestHandlePlatformAuthorize_InvalidRequestIDFormat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s, _ := newPlatformTestServer(t)
+
+	router := gin.New()
+	router.GET("/iam/v1/oauth/platforms/:platformId/authorize", s.HandlePlatformAuthorizeGin)
+
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	e := httpexpect.Default(t, ts.URL)
+
+	// Invalid request_id format (not UUID4 without hyphens)
+	e.GET("/iam/v1/oauth/platforms/google/authorize").
+		WithQuery("request_id", "invalid-request-id").
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object().
+		ValueEqual("error", "invalid_request").
+		ValueEqual("error_description", "invalid request_id format")
+}
+
+func TestHandlePlatformAuthorize_InvalidPlatformID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s, _ := newPlatformTestServer(t)
+
+	router := gin.New()
+	router.GET("/iam/v1/oauth/platforms/:platformId/authorize", s.HandlePlatformAuthorizeGin)
+
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	e := httpexpect.Default(t, ts.URL)
+
+	// Invalid platform_id (contains special characters)
+	e.GET("/iam/v1/oauth/platforms/invalid-platform!/authorize").
+		WithQuery("request_id", "550e8400e29b41d4a716446655440000").
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object().
+		ValueEqual("error", "invalid_request")
+}
+
+func TestHandlePlatformAuthenticate_MissingParams(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s, _ := newPlatformTestServer(t)
+
+	router := gin.New()
+	router.GET("/iam/v1/platforms/:platformId/authenticate", s.HandlePlatformAuthenticateGin)
+
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	e := httpexpect.Default(t, ts.URL)
+
+	// Missing code and state
+	e.GET("/iam/v1/platforms/google/authenticate").
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object().
+		ValueEqual("error", "invalid_request").
+		ValueEqual("error_description", "missing required parameters")
+}
+
+func TestHandlePlatformAuthenticate_PlatformError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s, _ := newPlatformTestServer(t)
+
+	router := gin.New()
+	router.GET("/iam/v1/platforms/:platformId/authenticate", s.HandlePlatformAuthenticateGin)
+
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	e := httpexpect.Default(t, ts.URL)
+
+	// Platform returns error (e.g., user denied access)
+	e.GET("/iam/v1/platforms/google/authenticate").
+		WithQuery("error", "access_denied").
+		WithQuery("error_description", "user denied access").
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object().
+		ValueEqual("error", "access_denied").
+		ValueEqual("error_description", "user denied access")
+}
