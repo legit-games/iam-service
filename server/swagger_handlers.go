@@ -263,6 +263,108 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
 				},
 			},
+			// Platform endpoints
+			"/iam/v1/oauth/admin/namespaces/{ns}/users/{userId}/platforms/{platformId}/platformToken": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Retrieve third-party platform token for a user",
+					"description": "Retrieves the stored platform token for a user's linked platform account. Requires platform:read or admin scope.",
+					"tags":        []string{"Platform"},
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Namespace"},
+						{"name": "userId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "User ID"},
+						{"name": "platformId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Platform ID (e.g., steam, google, facebook)"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Platform token retrieved successfully"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+						"401": map[string]interface{}{"description": "Unauthorized"},
+						"404": map[string]interface{}{"description": "Platform account not found"},
+					},
+				},
+			},
+			"/iam/v1/oauth/admin/namespaces/{ns}/users/{userId}/platforms": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List linked platform accounts for a user",
+					"description": "Returns all platform accounts linked to the specified user. Requires platform:read or admin scope.",
+					"tags":        []string{"Platform"},
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Namespace"},
+						{"name": "userId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "User ID"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "List of platform accounts"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+						"401": map[string]interface{}{"description": "Unauthorized"},
+					},
+				},
+			},
+			"/iam/v1/oauth/platforms/{platformId}/authorize": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Initiate platform OAuth authorization",
+					"description": "Initiates the OAuth authorization flow with a third-party platform. Returns a redirect URL to the platform's login page.",
+					"tags":        []string{"Platform"},
+					"parameters": []map[string]interface{}{
+						{"name": "platformId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Platform ID (e.g., google, facebook, discord)"},
+						{"name": "request_id", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "UUID4 without hyphens identifying the authorization request"},
+					},
+					"responses": map[string]interface{}{
+						"302": map[string]interface{}{"description": "Redirect to platform authorization URL"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+					},
+				},
+			},
+			"/iam/v1/platforms/{platformId}/authenticate": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Platform OAuth callback",
+					"description": "Handles the OAuth callback from third-party platforms after user authorization.",
+					"tags":        []string{"Platform"},
+					"parameters": []map[string]interface{}{
+						{"name": "platformId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Platform ID"},
+						{"name": "code", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}, "description": "Authorization code from platform"},
+						{"name": "state", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}, "description": "State parameter (request_id)"},
+						{"name": "error", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}, "description": "Error code if authorization failed"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Authentication successful"},
+						"400": map[string]interface{}{"description": "Invalid request or authorization denied"},
+					},
+				},
+			},
+			"/iam/v1/oauth/platforms/{platformId}/token": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Exchange platform credentials for IAM token",
+					"description": "Authenticates a user using third-party platform credentials (platform_token or device_id) and returns IAM access tokens. Requires Basic Auth with client credentials.",
+					"tags":        []string{"Platform"},
+					"security":    []map[string]interface{}{{"basicAuth": []interface{}{}}},
+					"parameters": []map[string]interface{}{
+						{"name": "platformId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Platform ID (e.g., steam, google, facebook, device)"},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/x-www-form-urlencoded": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"platform_token":  map[string]interface{}{"type": "string", "description": "Token from platform authentication (required if device_id not provided)"},
+										"device_id":       map[string]interface{}{"type": "string", "description": "Device identifier (required if platform_token not provided)"},
+										"createHeadless":  map[string]interface{}{"type": "boolean", "description": "Create headless account if not linked (default: true)"},
+										"skipSetCookie":   map[string]interface{}{"type": "boolean", "description": "Skip setting cookies in response (default: false)"},
+										"mac_address":     map[string]interface{}{"type": "string", "description": "MAC address of the device"},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Access token issued successfully"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+						"401": map[string]interface{}{"description": "Unauthorized or not_linked error"},
+						"403": map[string]interface{}{"description": "User banned"},
+						"503": map[string]interface{}{"description": "Platform service unavailable"},
+					},
+				},
+			},
 		},
 		"components": map[string]interface{}{"securitySchemes": map[string]interface{}{"basicAuth": map[string]interface{}{"type": "http", "scheme": "basic"}}},
 	}
@@ -741,6 +843,108 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
 					},
 					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "OK"}},
+				},
+			},
+			// Platform endpoints
+			"/iam/v1/oauth/admin/namespaces/{ns}/users/{userId}/platforms/{platformId}/platformToken": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Retrieve third-party platform token for a user",
+					"description": "Retrieves the stored platform token for a user's linked platform account. Requires platform:read or admin scope.",
+					"tags":        []string{"Platform"},
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Namespace"},
+						{"name": "userId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "User ID"},
+						{"name": "platformId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Platform ID (e.g., steam, google, facebook)"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Platform token retrieved successfully"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+						"401": map[string]interface{}{"description": "Unauthorized"},
+						"404": map[string]interface{}{"description": "Platform account not found"},
+					},
+				},
+			},
+			"/iam/v1/oauth/admin/namespaces/{ns}/users/{userId}/platforms": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List linked platform accounts for a user",
+					"description": "Returns all platform accounts linked to the specified user. Requires platform:read or admin scope.",
+					"tags":        []string{"Platform"},
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Namespace"},
+						{"name": "userId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "User ID"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "List of platform accounts"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+						"401": map[string]interface{}{"description": "Unauthorized"},
+					},
+				},
+			},
+			"/iam/v1/oauth/platforms/{platformId}/authorize": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Initiate platform OAuth authorization",
+					"description": "Initiates the OAuth authorization flow with a third-party platform. Returns a redirect URL to the platform's login page.",
+					"tags":        []string{"Platform"},
+					"parameters": []map[string]interface{}{
+						{"name": "platformId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Platform ID (e.g., google, facebook, discord)"},
+						{"name": "request_id", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "UUID4 without hyphens identifying the authorization request"},
+					},
+					"responses": map[string]interface{}{
+						"302": map[string]interface{}{"description": "Redirect to platform authorization URL"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+					},
+				},
+			},
+			"/iam/v1/platforms/{platformId}/authenticate": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Platform OAuth callback",
+					"description": "Handles the OAuth callback from third-party platforms after user authorization.",
+					"tags":        []string{"Platform"},
+					"parameters": []map[string]interface{}{
+						{"name": "platformId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Platform ID"},
+						{"name": "code", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}, "description": "Authorization code from platform"},
+						{"name": "state", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}, "description": "State parameter (request_id)"},
+						{"name": "error", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}, "description": "Error code if authorization failed"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Authentication successful"},
+						"400": map[string]interface{}{"description": "Invalid request or authorization denied"},
+					},
+				},
+			},
+			"/iam/v1/oauth/platforms/{platformId}/token": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Exchange platform credentials for IAM token",
+					"description": "Authenticates a user using third-party platform credentials (platform_token or device_id) and returns IAM access tokens. Requires Basic Auth with client credentials.",
+					"tags":        []string{"Platform"},
+					"security":    []map[string]interface{}{{"basicAuth": []interface{}{}}},
+					"parameters": []map[string]interface{}{
+						{"name": "platformId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Platform ID (e.g., steam, google, facebook, device)"},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/x-www-form-urlencoded": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"platform_token":  map[string]interface{}{"type": "string", "description": "Token from platform authentication (required if device_id not provided)"},
+										"device_id":       map[string]interface{}{"type": "string", "description": "Device identifier (required if platform_token not provided)"},
+										"createHeadless":  map[string]interface{}{"type": "boolean", "description": "Create headless account if not linked (default: true)"},
+										"skipSetCookie":   map[string]interface{}{"type": "boolean", "description": "Skip setting cookies in response (default: false)"},
+										"mac_address":     map[string]interface{}{"type": "string", "description": "MAC address of the device"},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Access token issued successfully"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+						"401": map[string]interface{}{"description": "Unauthorized or not_linked error"},
+						"403": map[string]interface{}{"description": "User banned"},
+						"503": map[string]interface{}{"description": "Platform service unavailable"},
+					},
 				},
 			},
 		},
