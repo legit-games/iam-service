@@ -1,21 +1,48 @@
-import { useState } from 'react';
-import { Table, Button, Modal, Form, Input, Select, Switch, Tag, message, Space } from 'antd';
-import { PlusOutlined, ReloadOutlined, EditOutlined } from '@ant-design/icons';
+import { useState, useEffect } from 'react';
+import { Table, Button, Modal, Form, Input, Select, Switch, Tag, message, Space, Typography, Tooltip } from 'antd';
+import { PlusOutlined, ReloadOutlined, EditOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useNamespaceContext } from '../../hooks/useNamespaceContext';
 import { usePlatformClients, useCreatePlatformClient, useUpdatePlatformClient } from '../../hooks/usePlatforms';
-import { PLATFORM_LIST, ENVIRONMENTS } from '../../constants/platforms';
+import {
+  PLATFORM_LIST,
+  PLATFORM_CONFIGS,
+  PLATFORM_ENVIRONMENTS,
+  PLATFORM_DEFAULT_ENV,
+  type PlatformFieldConfig,
+} from '../../constants/platforms';
 import type { PlatformClient } from '../../api/types';
+
+const { Text } = Typography;
+const { TextArea } = Input;
 
 export default function PlatformClientList() {
   const [form] = Form.useForm();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingPlatform, setEditingPlatform] = useState<PlatformClient | null>(null);
+  const [selectedPlatformId, setSelectedPlatformId] = useState<string>('');
 
   const { currentNamespace } = useNamespaceContext();
   const { data: platforms = [], isLoading, refetch } = usePlatformClients(currentNamespace || '');
   const createMutation = useCreatePlatformClient(currentNamespace || '');
   const updateMutation = useUpdatePlatformClient(currentNamespace || '');
+
+  // Get current platform config
+  const currentPlatformConfig = selectedPlatformId ? PLATFORM_CONFIGS[selectedPlatformId] : null;
+  const currentEnvironments = selectedPlatformId ? PLATFORM_ENVIRONMENTS[selectedPlatformId] : ['dev', 'prod'];
+
+  // Reset form fields when platform changes (except when editing)
+  useEffect(() => {
+    if (selectedPlatformId && !editingPlatform) {
+      const defaultEnv = PLATFORM_DEFAULT_ENV[selectedPlatformId] || 'dev';
+      const defaultScopes = currentPlatformConfig?.defaultScopes || '';
+      form.setFieldsValue({
+        environment: defaultEnv,
+        scopes: defaultScopes,
+        active: true,
+      });
+    }
+  }, [selectedPlatformId, editingPlatform, form, currentPlatformConfig]);
 
   const columns: ColumnsType<PlatformClient> = [
     {
@@ -23,8 +50,12 @@ export default function PlatformClientList() {
       dataIndex: 'platform_id',
       key: 'platform_id',
       render: (id: string) => {
-        const platform = PLATFORM_LIST.find((p) => p.id === id);
-        return <Tag color="blue">{platform?.name || id}</Tag>;
+        const config = PLATFORM_CONFIGS[id];
+        return (
+          <Tooltip title={config?.description}>
+            <Tag color="blue">{config?.name || id}</Tag>
+          </Tooltip>
+        );
       },
     },
     {
@@ -38,7 +69,16 @@ export default function PlatformClientList() {
       dataIndex: 'environment',
       key: 'environment',
       render: (env: string) => {
-        const colors: Record<string, string> = { dev: 'green', 'prod-qa': 'orange', prod: 'red' };
+        const colors: Record<string, string> = {
+          dev: 'green',
+          'prod-qa': 'orange',
+          prod: 'red',
+          'sp-int': 'green',
+          stage: 'orange',
+          SANDBOX: 'green',
+          CERT: 'orange',
+          RETAIL: 'red',
+        };
         return <Tag color={colors[env] || 'default'}>{env}</Tag>;
       },
     },
@@ -47,6 +87,7 @@ export default function PlatformClientList() {
       dataIndex: 'redirect_uri',
       key: 'redirect_uri',
       ellipsis: true,
+      render: (uri: string) => uri || <Text type="secondary">N/A</Text>,
     },
     {
       title: 'Active',
@@ -65,6 +106,7 @@ export default function PlatformClientList() {
           icon={<EditOutlined />}
           onClick={() => {
             setEditingPlatform(record);
+            setSelectedPlatformId(record.platform_id);
             form.setFieldsValue(record);
             setModalOpen(true);
           }}
@@ -75,6 +117,15 @@ export default function PlatformClientList() {
     },
   ];
 
+  const handlePlatformChange = (platformId: string) => {
+    setSelectedPlatformId(platformId);
+    // Clear form fields except platform_id when changing platform
+    if (!editingPlatform) {
+      form.resetFields();
+      form.setFieldsValue({ platform_id: platformId });
+    }
+  };
+
   const handleSubmit = async () => {
     if (!currentNamespace) {
       message.error('Please select a namespace first');
@@ -83,6 +134,12 @@ export default function PlatformClientList() {
 
     try {
       const values = await form.validateFields();
+
+      // Set generic_oauth_flow flag for generic platform
+      if (values.platform_id === 'generic') {
+        values.generic_oauth_flow = true;
+      }
+
       if (editingPlatform) {
         await updateMutation.mutateAsync({ platformId: editingPlatform.platform_id, data: values });
         message.success('Platform client updated successfully');
@@ -92,12 +149,59 @@ export default function PlatformClientList() {
       }
       form.resetFields();
       setEditingPlatform(null);
+      setSelectedPlatformId('');
       setModalOpen(false);
     } catch (err) {
       if (err instanceof Error) {
         message.error(err.message);
       }
     }
+  };
+
+  const handleCancel = () => {
+    setModalOpen(false);
+    setEditingPlatform(null);
+    setSelectedPlatformId('');
+    form.resetFields();
+  };
+
+  // Render a form field based on config
+  const renderFormField = (fieldConfig: PlatformFieldConfig) => {
+    const { name, label, required, placeholder, type, tooltip } = fieldConfig;
+
+    const labelWithTooltip = tooltip ? (
+      <span>
+        {label}{' '}
+        <Tooltip title={tooltip}>
+          <QuestionCircleOutlined style={{ color: '#999' }} />
+        </Tooltip>
+      </span>
+    ) : (
+      label
+    );
+
+    let inputComponent;
+    switch (type) {
+      case 'password':
+        inputComponent = <Input.Password placeholder={placeholder} />;
+        break;
+      case 'textarea':
+        inputComponent = <TextArea rows={4} placeholder={placeholder} />;
+        break;
+      default:
+        inputComponent = <Input placeholder={placeholder} />;
+    }
+
+    return (
+      <Form.Item
+        key={name}
+        name={name}
+        label={labelWithTooltip}
+        rules={required ? [{ required: true, message: `${label} is required` }] : undefined}
+      >
+        {inputComponent}
+      </Form.Item>
+    );
   };
 
   return (
@@ -113,6 +217,7 @@ export default function PlatformClientList() {
             icon={<PlusOutlined />}
             onClick={() => {
               setEditingPlatform(null);
+              setSelectedPlatformId('');
               form.resetFields();
               setModalOpen(true);
             }}
@@ -141,73 +246,93 @@ export default function PlatformClientList() {
         title={editingPlatform ? 'Edit Platform Client' : 'Add Platform Client'}
         open={modalOpen}
         onOk={handleSubmit}
-        onCancel={() => {
-          setModalOpen(false);
-          setEditingPlatform(null);
-          form.resetFields();
-        }}
+        onCancel={handleCancel}
         confirmLoading={createMutation.isPending || updateMutation.isPending}
-        width={600}
+        width={640}
+        destroyOnClose
       >
-        <Form form={form} layout="vertical" initialValues={{ active: true, environment: 'dev' }}>
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={{ active: true }}
+          preserve={false}
+        >
+          {/* Platform Selection */}
           <Form.Item
             name="platform_id"
             label="Platform"
-            rules={[{ required: true }]}
+            rules={[{ required: true, message: 'Please select a platform' }]}
           >
-            <Select disabled={!!editingPlatform}>
-              {PLATFORM_LIST.map((p) => (
-                <Select.Option key={p.id} value={p.id}>
-                  {p.name}
-                </Select.Option>
-              ))}
-            </Select>
+            <Select
+              disabled={!!editingPlatform}
+              onChange={handlePlatformChange}
+              placeholder="Select a platform"
+              showSearch
+              optionFilterProp="label"
+              options={PLATFORM_LIST.map((p) => ({
+                value: p.id,
+                label: p.name,
+                desc: p.description,
+              }))}
+              optionRender={(option) => (
+                <div>
+                  <div>{option.data.label}</div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {option.data.desc}
+                  </Text>
+                </div>
+              )}
+            />
           </Form.Item>
 
-          <Form.Item
-            name="client_id"
-            label="Client ID"
-            rules={[{ required: true }]}
-          >
-            <Input placeholder="Platform OAuth Client ID" />
-          </Form.Item>
+          {/* Platform Description */}
+          {currentPlatformConfig && (
+            <div
+              style={{
+                marginBottom: 16,
+                padding: 12,
+                background: '#f5f5f5',
+                borderRadius: 6,
+                borderLeft: '3px solid #1890ff',
+              }}
+            >
+              <Text type="secondary">{currentPlatformConfig.description}</Text>
+            </div>
+          )}
 
-          <Form.Item
-            name="secret"
-            label="Client Secret"
-          >
-            <Input.Password placeholder="Platform OAuth Client Secret" />
-          </Form.Item>
+          {/* Dynamic Fields based on Platform */}
+          {currentPlatformConfig && (
+            <>
+              {currentPlatformConfig.fields.map((field) => renderFormField(field))}
 
-          <Form.Item
-            name="redirect_uri"
-            label="Redirect URI"
-            rules={[{ required: true }]}
-          >
-            <Input placeholder="https://example.com/callback" />
-          </Form.Item>
+              {/* Environment Selection */}
+              <Form.Item
+                name="environment"
+                label="Environment"
+                rules={[{ required: true, message: 'Please select an environment' }]}
+              >
+                <Select>
+                  {currentEnvironments.map((env) => (
+                    <Select.Option key={env} value={env}>
+                      {env}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
 
-          <Form.Item name="environment" label="Environment" rules={[{ required: true }]}>
-            <Select>
-              {ENVIRONMENTS.map((env) => (
-                <Select.Option key={env} value={env}>
-                  {env}
-                </Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
+              {/* Active Switch */}
+              <Form.Item name="active" label="Active" valuePropName="checked">
+                <Switch />
+              </Form.Item>
+            </>
+          )}
 
-          <Form.Item name="app_id" label="App ID (optional)">
-            <Input placeholder="Platform App ID" />
-          </Form.Item>
-
-          <Form.Item name="scopes" label="Scopes (optional)">
-            <Input placeholder="openid profile email" />
-          </Form.Item>
-
-          <Form.Item name="active" label="Active" valuePropName="checked">
-            <Switch />
-          </Form.Item>
+          {/* Show message when no platform selected */}
+          {!currentPlatformConfig && !editingPlatform && (
+            <div style={{ textAlign: 'center', padding: 24, color: '#999' }}>
+              Select a platform to configure
+            </div>
+          )}
         </Form>
       </Modal>
     </div>
