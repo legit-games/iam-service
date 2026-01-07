@@ -32,7 +32,7 @@ func (s *Server) RequireScopeOrPermission(scopeRequirement ScopeRequirement, per
 			parts := strings.Split(authHeader, " ")
 			if len(parts) == 2 && parts[0] == "Bearer" {
 				token, err := jwt.Parse(parts[1], func(token *jwt.Token) (interface{}, error) {
-					return []byte("test-key"), nil
+					return []byte("00000000"), nil
 				})
 
 				if err == nil && token.Valid {

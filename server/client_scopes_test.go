@@ -31,7 +31,7 @@ func TestClientScopes_TokenGeneration(t *testing.T) {
 	// Setup JWT access generator
 	m := manage.NewDefaultManager()
 	m.MustTokenStorage(store.NewMemoryTokenStore())
-	m.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("test-key"), jwt.SigningMethodHS256))
+	m.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("00000000"), jwt.SigningMethodHS256))
 
 	// Get database and setup client store
 	db, err := s.GetPrimaryDB()
@@ -133,7 +133,7 @@ func TestClientScopes_TokenGeneration(t *testing.T) {
 
 		// Verify JWT contains scope
 		token, err := jwt.Parse(accessToken, func(token *jwt.Token) (interface{}, error) {
-			return []byte("test-key"), nil
+			return []byte("00000000"), nil
 		})
 		if err != nil {
 			t.Fatalf("Failed to parse JWT: %v", err)

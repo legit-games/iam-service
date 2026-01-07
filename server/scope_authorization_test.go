@@ -25,7 +25,7 @@ func TestScopeAuthorization(t *testing.T) {
 	// Create JWT access generator
 	m := manage.NewDefaultManager()
 	m.MustTokenStorage(store.NewMemoryTokenStore())
-	m.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("test-key"), jwt.SigningMethodHS256))
+	m.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("00000000"), jwt.SigningMethodHS256))
 
 	// Setup client store with scopes
 	cliStore := store.NewClientStore()
@@ -80,7 +80,7 @@ func TestScopeAuthorization(t *testing.T) {
 		}
 
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		tokenString, _ := token.SignedString([]byte("test-key"))
+		tokenString, _ := token.SignedString([]byte("00000000"))
 		return tokenString
 	}
 

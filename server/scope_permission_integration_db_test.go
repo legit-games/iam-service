@@ -37,7 +37,7 @@ func TestScopeAndPermissionIntegrationWithDB(t *testing.T) {
 		}
 
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		tokenString, _ := token.SignedString([]byte("test-key"))
+		tokenString, _ := token.SignedString([]byte("00000000"))
 		return tokenString
 	}
 
@@ -182,7 +182,7 @@ func TestScopeAndPermissionIntegrationWithDB(t *testing.T) {
 		}
 
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		tokenString, _ := token.SignedString([]byte("test-key"))
+		tokenString, _ := token.SignedString([]byte("00000000"))
 
 		e := httpexpect.Default(t, httptest.NewServer(testRouter).URL)
 

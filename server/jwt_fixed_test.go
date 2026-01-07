@@ -26,7 +26,7 @@ func TestPasswordGrant_UserRolePermissionsInJWT_Fixed(t *testing.T) {
 	// Create JWT access generator
 	m := manage.NewDefaultManager()
 	m.MustTokenStorage(store.NewMemoryTokenStore())
-	m.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("test-key"), jwt.SigningMethodHS256))
+	m.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("00000000"), jwt.SigningMethodHS256))
 
 	// Setup client store
 	cliStore := store.NewClientStore()
@@ -133,7 +133,7 @@ func TestPasswordGrant_UserRolePermissionsInJWT_Fixed(t *testing.T) {
 
 	// Verify JWT contains permissions
 	token, err := jwt.Parse(access, func(token *jwt.Token) (interface{}, error) {
-		return []byte("test-key"), nil
+		return []byte("00000000"), nil
 	})
 	if err != nil {
 		t.Fatalf("Failed to parse JWT: %v", err)
@@ -185,7 +185,7 @@ func TestPasswordGrant_UserRolePermissionsInJWT_Fixed(t *testing.T) {
 
 	access2 := resp2.Value("access_token").String().Raw()
 	token2, err := jwt.Parse(access2, func(token *jwt.Token) (interface{}, error) {
-		return []byte("test-key"), nil
+		return []byte("00000000"), nil
 	})
 	if err != nil {
 		t.Fatalf("Failed to parse JWT without namespace: %v", err)
