@@ -86,7 +86,21 @@ func (s *Server) RequireScopeAndPermission(scopeRequirement ScopeRequirement, pe
 		c.Set("client_id", claims["client_id"])
 		c.Set("user_id", claims["sub"])
 
-		// Step 2: If scope check passed, proceed to permission check
+		// Step 2: If user has "admin" scope, bypass permission check (admin has full access)
+		hasAdminScope := false
+		for _, scope := range userScopes {
+			if scope == ScopeAdmin {
+				hasAdminScope = true
+				break
+			}
+		}
+		if hasAdminScope {
+			// Admin scope bypasses permission check
+			c.Next()
+			return
+		}
+
+		// Step 3: If scope check passed but no admin scope, proceed to permission check
 		// Execute the permission middleware
 		permissionMiddleware := RequireAuthorization(permissionSpec, permAction, nil)
 		permissionMiddleware(c)
