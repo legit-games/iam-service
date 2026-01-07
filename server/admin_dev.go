@@ -38,6 +38,11 @@ func RegisterAdminRoutes(r *gin.Engine) {
 		proxy.ServeHTTP(c.Writer, c.Request)
 	})
 
+	// Proxy Vite's dependency pre-bundling
+	r.Any("/.vite/*path", func(c *gin.Context) {
+		proxy.ServeHTTP(c.Writer, c.Request)
+	})
+
 	r.Any("/node_modules/*path", func(c *gin.Context) {
 		proxy.ServeHTTP(c.Writer, c.Request)
 	})
