@@ -10,7 +10,7 @@ export default function Login() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/', { replace: true });
+      navigate('/select-namespace', { replace: true });
     }
   }, [isAuthenticated, navigate]);
 

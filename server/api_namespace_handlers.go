@@ -68,9 +68,9 @@ func (s *Server) handleListNamespaces(c *gin.Context) {
 }
 
 func (s *Server) handleGetNamespace(c *gin.Context) {
-	name := c.Param("name")
+	name := c.Param("ns")
 	if name == "" {
-		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("name parameter required")))
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("namespace parameter required")))
 		return
 	}
 
@@ -87,4 +87,56 @@ func (s *Server) handleGetNamespace(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, ns)
+}
+
+type UpdateNamespaceRequest struct {
+	Description string `json:"description"`
+	Active      *bool  `json:"active"`
+}
+
+func (s *Server) handleUpdateNamespace(c *gin.Context) {
+	name := c.Param("ns")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("namespace parameter required")))
+		return
+	}
+
+	// Normalize name to uppercase for lookup
+	upperName := strings.ToUpper(strings.TrimSpace(name))
+
+	// Check if namespace exists
+	ns, err := s.nsStore.GetByName(c.Request.Context(), upperName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+	if ns == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "namespace not found"})
+		return
+	}
+
+	var req UpdateNamespaceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+
+	// Use existing active value if not provided
+	active := ns.Active
+	if req.Active != nil {
+		active = *req.Active
+	}
+
+	if err := s.nsStore.Update(c.Request.Context(), upperName, req.Description, active); err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+
+	// Return updated namespace
+	updatedNs, err := s.nsStore.GetByName(c.Request.Context(), upperName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+	c.JSON(http.StatusOK, updatedNs)
 }

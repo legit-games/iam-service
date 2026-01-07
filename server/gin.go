@@ -54,6 +54,8 @@ func NewGinEngine(s *Server) *gin.Engine {
 	// Namespace & Account management APIs (Scope + Permission)
 	r.GET("/iam/v1/admin/namespaces", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeNamespaceRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*", permission.READ), s.handleListNamespaces)
 	r.POST("/iam/v1/admin/namespaces", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeNamespaceWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*", permission.CREATE), s.handleCreateNamespace)
+	r.GET("/iam/v1/admin/namespaces/:ns", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeNamespaceRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*", permission.READ), s.handleGetNamespace)
+	r.PUT("/iam/v1/admin/namespaces/:ns", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeNamespaceWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*", permission.UPDATE), s.handleUpdateNamespace)
 	r.POST("/iam/v1/accounts/head", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.CREATE), s.handleCreateHeadAccount)
 	r.POST("/iam/v1/accounts/headless", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.CREATE), s.handleCreateHeadlessAccount)
 	r.POST("/iam/v1/accounts/:id/link", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.UPDATE), s.handleLinkAccount)

@@ -8,6 +8,7 @@ export interface Namespace {
   name: string;
   type: NamespaceType;
   description?: string;
+  active: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -16,6 +17,11 @@ export interface CreateNamespaceRequest {
   name: string;
   type: NamespaceType;
   description?: string;
+}
+
+export interface UpdateNamespaceRequest {
+  description?: string;
+  active?: boolean;
 }
 
 // OAuth Client types

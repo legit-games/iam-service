@@ -5,8 +5,8 @@ import { ProtectedRoute } from './auth/ProtectedRoute';
 import MainLayout from './components/Layout/MainLayout';
 import Login from './pages/Login';
 import Callback from './pages/Callback';
+import NamespaceSelectPage from './pages/NamespaceSelectPage';
 import Dashboard from './pages/Dashboard';
-import NamespaceList from './pages/namespaces/NamespaceList';
 import ClientList from './pages/clients/ClientList';
 import ClientDetail from './pages/clients/ClientDetail';
 import UserList from './pages/users/UserList';
@@ -32,6 +32,14 @@ function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/callback" element={<Callback />} />
       <Route
+        path="/select-namespace"
+        element={
+          <ProtectedRoute>
+            <NamespaceSelectPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/"
         element={
           <ProtectedRoute>
@@ -40,7 +48,6 @@ function App() {
         }
       >
         <Route index element={<Dashboard />} />
-        <Route path="namespaces" element={<NamespaceList />} />
         <Route path="clients" element={<ClientList />} />
         <Route path="clients/:id" element={<ClientDetail />} />
         <Route path="users" element={<UserList />} />

@@ -55,6 +55,7 @@ type Namespace struct {
 	Name        string        `json:"name" db:"name"`
 	Type        NamespaceType `json:"type" db:"type"` // 'publisher' or 'game'
 	Description string        `json:"description,omitempty" db:"description"`
+	Active      bool          `json:"active" db:"active"`
 	CreatedAt   time.Time     `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time     `json:"updated_at" db:"updated_at"`
 }
