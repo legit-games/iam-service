@@ -27,7 +27,7 @@ func TestScopeMiddlewareOnly(t *testing.T) {
 	// Create server
 	m := manage.NewDefaultManager()
 	m.MustTokenStorage(store.NewMemoryTokenStore())
-	m.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("test-key"), jwt.SigningMethodHS256))
+	m.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("00000000"), jwt.SigningMethodHS256))
 
 	cfg := &Config{
 		TokenType:            "Bearer",
@@ -55,7 +55,7 @@ func TestScopeMiddlewareOnly(t *testing.T) {
 			TokenInfo: ti,
 		}
 
-		gen := generates.NewJWTAccessGenerate("", []byte("test-key"), jwt.SigningMethodHS256)
+		gen := generates.NewJWTAccessGenerate("", []byte("00000000"), jwt.SigningMethodHS256)
 		accessToken, _, _ := gen.Token(context.Background(), data, false)
 		return accessToken
 	}

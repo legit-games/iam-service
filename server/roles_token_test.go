@@ -27,7 +27,7 @@ func TestPasswordGrant_UserRolePermissionsInJWT(t *testing.T) {
 	// Use JWT access generator to test permissions in token
 	m := manage.NewDefaultManager()
 	m.MustTokenStorage(store.NewMemoryTokenStore())
-	m.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("test-key"), jwt.SigningMethodHS256))
+	m.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("00000000"), jwt.SigningMethodHS256))
 
 	cliStore := store.NewClientStore()
 	_ = cliStore.Set("confidential", &models.Client{ID: "confidential", Secret: "secret"})
@@ -140,7 +140,7 @@ func TestPasswordGrant_UserRolePermissionsInJWT(t *testing.T) {
 
 	// Verify it's a valid JWT token by parsing it
 	token, err := jwt.Parse(access, func(token *jwt.Token) (interface{}, error) {
-		return []byte("test-key"), nil
+		return []byte("00000000"), nil
 	})
 	if err != nil {
 		t.Fatalf("failed to parse JWT: %v", err)
@@ -213,7 +213,7 @@ func TestPasswordGrant_UserRolePermissionsInJWT(t *testing.T) {
 // TestJWTPermissionsDirectly tests JWT permission inclusion without HTTP server
 func TestJWTPermissionsDirectly(t *testing.T) {
 	// Create JWT generator
-	gen := generates.NewJWTAccessGenerate("", []byte("test-key"), jwt.SigningMethodHS256)
+	gen := generates.NewJWTAccessGenerate("", []byte("00000000"), jwt.SigningMethodHS256)
 
 	// Create mock client and token info
 	client := &models.Client{ID: "test-client", Secret: "secret"}
@@ -248,7 +248,7 @@ func TestJWTPermissionsDirectly(t *testing.T) {
 
 	// Parse and verify token
 	token, err := jwt.Parse(accessToken, func(token *jwt.Token) (interface{}, error) {
-		return []byte("test-key"), nil
+		return []byte("00000000"), nil
 	})
 	if err != nil {
 		t.Fatalf("Failed to parse token: %v", err)

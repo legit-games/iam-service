@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"embed"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"os"
 	"time"
 
@@ -23,10 +26,14 @@ import (
 	"github.com/go-oauth2/oauth2/v4/store"
 	"github.com/go-session/session/v3"
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
 
 	// migrations on start (optional)
 	"github.com/go-oauth2/oauth2/v4/migrate"
 )
+
+//go:embed static/*
+var staticFS embed.FS
 
 var (
 	dumpvar   bool
@@ -34,6 +41,7 @@ var (
 	secretvar string
 	domainvar string
 	portvar   int
+	globalSrv *server.Server // Global server reference for login handler
 )
 
 func init() {
@@ -79,17 +87,25 @@ func main() {
 	// If you prefer opaque tokens, switch back to generates.NewAccessGenerate()
 	// manager.MapAccessGenerate(generates.NewAccessGenerate())
 
-	clientStore := store.NewClientStore()
-	clientStore.Set(idvar, &models.Client{
-		ID:     idvar,
-		Secret: secretvar,
-		Domain: domainvar,
-	})
-	manager.MapClientStorage(clientStore)
-
-	log.Printf("Registered OAuth2 client: id=%s redirect_domain=%s", idvar, domainvar)
-
+	// Create server first to access DB
 	srv := server.NewServer(server.NewConfig(), manager)
+	globalSrv = srv // Set global reference for login handler
+
+	// Use DB client store if available, fallback to in-memory
+	if db, err := srv.GetPrimaryDB(); err == nil && db != nil {
+		dbClientStore := store.NewDBClientStore(db)
+		manager.MapClientStorage(dbClientStore)
+		log.Println("Using database client store")
+	} else {
+		clientStore := store.NewClientStore()
+		clientStore.Set(idvar, &models.Client{
+			ID:     idvar,
+			Secret: secretvar,
+			Domain: domainvar,
+		})
+		manager.MapClientStorage(clientStore)
+		log.Printf("Using in-memory client store: id=%s redirect_domain=%s", idvar, domainvar)
+	}
 
 	srv.SetPasswordAuthorizationHandler(func(ctx context.Context, clientID, username, password string) (userID string, err error) {
 		if username == "test" && password == "test" {
@@ -163,18 +179,23 @@ func userAuthorizeHandler(w http.ResponseWriter, r *http.Request) (userID string
 	}
 	store, err := session.Start(r.Context(), w, r)
 	if err != nil {
+		log.Printf("userAuthorizeHandler: session.Start error: %v", err)
 		return
 	}
 
 	uid, ok := store.Get("LoggedInUserID")
+	log.Printf("userAuthorizeHandler: LoggedInUserID found=%v, value=%v", ok, uid)
 	if !ok {
 		if r.Form == nil {
 			r.ParseForm()
 		}
+		// Store OAuth params in session (backup) and pass via URL query
 		store.Set("ReturnUri", r.Form)
 		store.Save()
 
-		w.Header().Set("Location", "/login")
+		// Pass OAuth params via URL to avoid session issues across redirects
+		redirectURL := "/login?" + r.URL.RawQuery
+		w.Header().Set("Location", redirectURL)
 		w.WriteHeader(http.StatusFound)
 		return
 	}
@@ -189,10 +210,16 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	if dumpvar {
 		_ = dumpRequest(os.Stdout, "login", r) // Ignore the error
 	}
-	store, err := session.Start(r.Context(), w, r)
+	sessionStore, err := session.Start(r.Context(), w, r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Store OAuth params from URL query in session for later use
+	if r.URL.RawQuery != "" && r.Method == "GET" {
+		sessionStore.Set("OAuthQuery", r.URL.RawQuery)
+		sessionStore.Save()
 	}
 
 	if r.Method == "POST" {
@@ -203,11 +230,48 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if r.Form.Get("username") == "test" && r.Form.Get("password") == "test" {
-			store.Set("LoggedInUserID", r.Form.Get("username"))
-			store.Save()
+		username := r.Form.Get("username")
+		password := r.Form.Get("password")
 
-			w.Header().Set("Location", "/auth")
+		// Try database authentication first
+		var userID string
+		var authenticated bool
+
+		if globalSrv != nil {
+			if db, err := globalSrv.GetPrimaryDB(); err == nil && db != nil {
+				var accountID, passwordHash string
+				row := db.Raw("SELECT id, password_hash FROM accounts WHERE username = ?", username).Row()
+				if err := row.Scan(&accountID, &passwordHash); err == nil {
+					if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)) == nil {
+						userID = accountID
+						authenticated = true
+					}
+				}
+			}
+		}
+
+		// Fallback to test/test for backward compatibility
+		if !authenticated && username == "test" && password == "test" {
+			userID = "test"
+			authenticated = true
+		}
+
+		if authenticated {
+			sessionStore.Set("LoggedInUserID", userID)
+			sessionStore.Save()
+
+			// Pass OAuth params to /auth via URL query
+			oauthQuery := ""
+			if v, ok := sessionStore.Get("OAuthQuery"); ok {
+				if q, ok := v.(string); ok {
+					oauthQuery = q
+				}
+			}
+			redirectURL := "/auth"
+			if oauthQuery != "" {
+				redirectURL = "/auth?" + oauthQuery
+			}
+			w.Header().Set("Location", redirectURL)
 			w.WriteHeader(http.StatusFound)
 			return
 		} else {
@@ -222,7 +286,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	if dumpvar {
 		_ = dumpRequest(os.Stdout, "auth", r) // Ignore the error
 	}
-	store, err := session.Start(nil, w, r)
+	store, err := session.Start(r.Context(), w, r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -234,16 +298,51 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	outputHTML(w, r, "static/auth.html")
+	// Get OAuth params from URL query (passed through the login flow)
+	var hiddenFields string
+	if r.URL.RawQuery != "" {
+		params, _ := url.ParseQuery(r.URL.RawQuery)
+		for key, values := range params {
+			for _, val := range values {
+				hiddenFields += fmt.Sprintf(`<input type="hidden" name="%s" value="%s" />`, key, val)
+			}
+		}
+	}
+
+	// Generate dynamic auth page with hidden fields
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Authorize Application</title>
+  <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="jumbotron">
+      <form action="/oauth/authorize" method="POST">
+        %s
+        <h1>Authorize</h1>
+        <p>The client would like to perform actions on your behalf.</p>
+        <p>
+          <button type="submit" class="btn btn-primary btn-lg" style="width:200px;">Allow</button>
+        </p>
+      </form>
+    </div>
+  </div>
+</body>
+</html>`, hiddenFields)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(html))
 }
 
 func outputHTML(w http.ResponseWriter, req *http.Request, filename string) {
-	file, err := os.Open(filename)
+	data, err := staticFS.ReadFile(filename)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	defer file.Close()
-	fi, _ := file.Stat()
-	http.ServeContent(w, req, file.Name(), fi.ModTime(), file)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	http.ServeContent(w, req, filename, time.Now(), bytes.NewReader(data))
 }

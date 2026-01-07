@@ -48,7 +48,7 @@ func (s *Server) RequireScope(requirement ScopeRequirement) gin.HandlerFunc {
 		var tokenValid bool
 
 		// Try to parse as JWT first
-		jwtKey := []byte("test-key") // Default for testing
+		jwtKey := []byte("00000000") // Must match the key used in generates.NewJWTAccessGenerate
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			return jwtKey, nil
 		})
@@ -198,7 +198,7 @@ func (s *Server) OptionalScope() gin.HandlerFunc {
 		}
 
 		tokenString := parts[1]
-		jwtKey := []byte("test-key") // Default for testing
+		jwtKey := []byte("00000000") // Must match the key used in generates.NewJWTAccessGenerate
 
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			return jwtKey, nil

@@ -36,7 +36,7 @@ func (s *Server) RequireScopeAndPermission(scopeRequirement ScopeRequirement, pe
 		}
 
 		tokenString := parts[1]
-		jwtKey := []byte("test-key") // Use the same key as scope middleware
+		jwtKey := []byte("00000000") // Must match the key used in generates.NewJWTAccessGenerate
 
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			return jwtKey, nil

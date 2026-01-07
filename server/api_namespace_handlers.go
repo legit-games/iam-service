@@ -57,3 +57,34 @@ func (s *Server) handleCreateNamespace(c *gin.Context) {
 func errInvalidNamespaceType() error {
 	return fmt.Errorf("invalid namespace type: must be 'publisher' or 'game'")
 }
+
+func (s *Server) handleListNamespaces(c *gin.Context) {
+	namespaces, err := s.nsStore.List(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+	c.JSON(http.StatusOK, namespaces)
+}
+
+func (s *Server) handleGetNamespace(c *gin.Context) {
+	name := c.Param("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, errorResponse(fmt.Errorf("name parameter required")))
+		return
+	}
+
+	// Normalize name to uppercase for lookup
+	upperName := strings.ToUpper(strings.TrimSpace(name))
+
+	ns, err := s.nsStore.GetByName(c.Request.Context(), upperName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+	if ns == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "namespace not found"})
+		return
+	}
+	c.JSON(http.StatusOK, ns)
+}

@@ -1,6 +1,6 @@
 # Simple Makefile to manage local PostgreSQL via Docker Compose
 
-.PHONY: db db-down db-ps db-logs db-restart db-wait env run dev swagger-open register valkey valkey-down valkey-ps valkey-logs dev-valkey build-server run-server build-client run-client examples kill-server build test
+.PHONY: db db-down db-ps db-logs db-restart db-wait env run dev swagger-open register valkey valkey-down valkey-ps valkey-logs dev-valkey build-server run-server build-client run-client examples kill-server build test admin-install admin-dev admin-build admin-clean dev-admin build-with-admin
 
 REG_DB_DSN_DEFAULT=postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable
 VALKEY_ADDR_DEFAULT=127.0.0.1:6379
@@ -146,3 +146,45 @@ test-verbose: db-down db db-wait migrate-up
 	@echo "Running server package tests with verbose logs..."
 	env APP_ENV=test go test ./server -v -count=1
 	@echo "Server test logs captured to server.test.out"
+
+# ==========================================
+# Admin Console (React)
+# ==========================================
+
+# Install admin console dependencies
+admin-install:
+	cd admin && npm install
+
+# Run admin console dev server (Vite on port 5173)
+admin-dev:
+	cd admin && npm run dev
+
+# Build admin console for production
+admin-build:
+	cd admin && npm run build
+
+# Clean admin console build
+admin-clean:
+	rm -rf admin/dist admin/node_modules
+
+# Copy admin dist to server package for embedding
+admin-embed: admin-build
+	@echo "Copying admin/dist to server/admin/dist for embedding..."
+	@mkdir -p server/admin
+	@rm -rf server/admin/dist
+	@cp -r admin/dist server/admin/dist
+	@echo "Admin console embedded successfully."
+
+# Development: run Go server (dev mode) and Vite dev server concurrently
+dev-admin: db db-wait
+	@echo "Starting Go server (dev mode) and Vite dev server..."
+	@trap 'kill %1 %2 2>/dev/null' SIGINT SIGTERM; \
+	(MIGRATE_ON_START=1 MIGRATE_DRIVER=postgres MIGRATE_DSN=$(REG_DB_DSN_DEFAULT) REG_DB_DSN=$(REG_DB_DSN_DEFAULT) VALKEY_ADDR=$(VALKEY_ADDR_DEFAULT) go run -tags dev ./example/server) & \
+	(cd admin && npm run dev) & \
+	wait
+
+# Build server with embedded admin console (production)
+build-with-admin: admin-embed
+	@echo "Building server with embedded admin console..."
+	cd example/server && go build -o ../../bin/server-with-admin server.go
+	@echo "Server built at bin/server-with-admin"

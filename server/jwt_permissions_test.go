@@ -14,7 +14,7 @@ import (
 // TestJWTPermissionsBasic tests the basic JWT permission functionality
 func TestJWTPermissionsBasic(t *testing.T) {
 	// Create JWT generator
-	gen := generates.NewJWTAccessGenerate("", []byte("test-key"), jwt.SigningMethodHS256)
+	gen := generates.NewJWTAccessGenerate("", []byte("00000000"), jwt.SigningMethodHS256)
 
 	// Create mock client and token info
 	client := &models.Client{ID: "test-client", Secret: "secret"}
@@ -37,7 +37,7 @@ func TestJWTPermissionsBasic(t *testing.T) {
 	}
 
 	token, err := jwt.Parse(accessToken, func(token *jwt.Token) (interface{}, error) {
-		return []byte("test-key"), nil
+		return []byte("00000000"), nil
 	})
 	if err != nil {
 		t.Fatalf("Failed to parse token without context: %v", err)
@@ -64,7 +64,7 @@ func TestJWTPermissionsBasic(t *testing.T) {
 	}
 
 	token2, err := jwt.Parse(accessToken2, func(token *jwt.Token) (interface{}, error) {
-		return []byte("test-key"), nil
+		return []byte("00000000"), nil
 	})
 	if err != nil {
 		t.Fatalf("Failed to parse token with resolver but no namespace: %v", err)
@@ -95,7 +95,7 @@ func TestJWTPermissionsBasic(t *testing.T) {
 	}
 
 	token3, err := jwt.Parse(accessToken3, func(token *jwt.Token) (interface{}, error) {
-		return []byte("test-key"), nil
+		return []byte("00000000"), nil
 	})
 	if err != nil {
 		t.Fatalf("Failed to parse token with full context: %v", err)

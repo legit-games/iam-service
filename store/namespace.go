@@ -30,3 +30,22 @@ func (s *NamespaceStore) GetByName(ctx context.Context, name string) (*models.Na
 	}
 	return &ns, nil
 }
+
+func (s *NamespaceStore) List(ctx context.Context) ([]*models.Namespace, error) {
+	var namespaces []*models.Namespace
+	if err := s.DB.WithContext(ctx).Raw(`SELECT id, name, type, description, created_at, updated_at FROM namespaces ORDER BY name`).Scan(&namespaces).Error; err != nil {
+		return nil, err
+	}
+	return namespaces, nil
+}
+
+func (s *NamespaceStore) GetByID(ctx context.Context, id string) (*models.Namespace, error) {
+	var ns models.Namespace
+	if err := s.DB.WithContext(ctx).Raw(`SELECT id, name, type, description, created_at, updated_at FROM namespaces WHERE id=?`, id).Scan(&ns).Error; err != nil {
+		return nil, err
+	}
+	if ns.ID == "" {
+		return nil, nil
+	}
+	return &ns, nil
+}

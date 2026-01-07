@@ -22,7 +22,7 @@ func newPlatformTestServer(t *testing.T) (*Server, func(clientID, userID, scopes
 
 	m := manage.NewDefaultManager()
 	m.MustTokenStorage(store.NewMemoryTokenStore())
-	m.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("test-key"), jwt.SigningMethodHS256))
+	m.MapAccessGenerate(generates.NewJWTAccessGenerate("", []byte("00000000"), jwt.SigningMethodHS256))
 
 	cfg := &Config{
 		TokenType:            "Bearer",
@@ -50,7 +50,7 @@ func newPlatformTestServer(t *testing.T) (*Server, func(clientID, userID, scopes
 			TokenInfo: ti,
 		}
 
-		gen := generates.NewJWTAccessGenerate("", []byte("test-key"), jwt.SigningMethodHS256)
+		gen := generates.NewJWTAccessGenerate("", []byte("00000000"), jwt.SigningMethodHS256)
 		accessToken, _, _ := gen.Token(context.Background(), data, false)
 		return accessToken
 	}

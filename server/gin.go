@@ -52,6 +52,7 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.POST("/iam/v1/public/users", s.HandleAPIRegisterUserGin)
 
 	// Namespace & Account management APIs (Scope + Permission)
+	r.GET("/iam/v1/admin/namespaces", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeNamespaceRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*", permission.READ), s.handleListNamespaces)
 	r.POST("/iam/v1/admin/namespaces", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeNamespaceWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*", permission.CREATE), s.handleCreateNamespace)
 	r.POST("/iam/v1/accounts/head", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.CREATE), s.handleCreateHeadAccount)
 	r.POST("/iam/v1/accounts/headless", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.CREATE), s.handleCreateHeadlessAccount)
@@ -103,6 +104,9 @@ func NewGinEngine(s *Server) *gin.Engine {
 
 	// Platform token endpoint (public - client auth via Basic Auth)
 	r.POST("/iam/v1/oauth/platforms/:platformId/token", s.HandlePlatformTokenGin)
+
+	// Register admin console routes (embedded React SPA or dev proxy)
+	RegisterAdminRoutes(r)
 
 	return r
 }
