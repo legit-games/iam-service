@@ -98,6 +98,13 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.GET("/iam/v1/oauth/admin/namespaces/:ns/users/:userId/platforms/:platformId/platformToken", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER:{userId}", permission.READ), s.HandleGetPlatformTokenGin)
 	r.GET("/iam/v1/oauth/admin/namespaces/:ns/users/:userId/platforms", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER:{userId}", permission.READ), s.HandleListPlatformAccountsGin)
 
+	// Platform client configuration (admin)
+	r.GET("/iam/v1/admin/namespaces/:ns/platform-clients", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:PLATFORM", permission.READ), s.HandleListPlatformClientsGin)
+	r.GET("/iam/v1/admin/namespaces/:ns/platform-clients/:platformId", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:PLATFORM", permission.READ), s.HandleGetPlatformClientGin)
+	r.POST("/iam/v1/admin/namespaces/:ns/platform-clients", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:PLATFORM", permission.CREATE), s.HandleCreatePlatformClientGin)
+	r.PUT("/iam/v1/admin/namespaces/:ns/platform-clients/:platformId", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:PLATFORM", permission.UPDATE), s.HandleUpdatePlatformClientGin)
+	r.DELETE("/iam/v1/admin/namespaces/:ns/platform-clients/:platformId", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:PLATFORM", permission.DELETE), s.HandleDeletePlatformClientGin)
+
 	// Platform OAuth authorization flow (public - no auth required)
 	r.GET("/iam/v1/oauth/platforms/:platformId/authorize", s.HandlePlatformAuthorizeGin)
 	r.GET("/iam/v1/platforms/:platformId/authenticate", s.HandlePlatformAuthenticateGin)

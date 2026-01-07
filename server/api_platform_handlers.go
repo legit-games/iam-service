@@ -778,3 +778,318 @@ func hasWhitespace(s string) bool {
 	}
 	return false
 }
+
+// HandleListPlatformClientsGin lists all platform clients for a namespace.
+// Route: GET /iam/v1/admin/namespaces/:ns/platform-clients
+func (s *Server) HandleListPlatformClientsGin(c *gin.Context) {
+	namespace := strings.ToUpper(strings.TrimSpace(c.Param("ns")))
+	if namespace == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_request",
+			"error_description": "namespace is required",
+		})
+		return
+	}
+
+	db, err := s.GetIAMReadDB()
+	if err != nil {
+		if err == ErrUserDBDSNNotSet {
+			c.JSON(http.StatusNotImplemented, gin.H{
+				"error":             "not_implemented",
+				"error_description": "database not configured",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to connect to database",
+		})
+		return
+	}
+
+	platformClientStore := store.NewPlatformClientStore(db)
+	clients, err := platformClientStore.GetByNamespace(c.Request.Context(), namespace)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to query platform clients",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, clients)
+}
+
+// HandleGetPlatformClientGin retrieves a specific platform client.
+// Route: GET /iam/v1/admin/namespaces/:ns/platform-clients/:platformId
+func (s *Server) HandleGetPlatformClientGin(c *gin.Context) {
+	namespace := strings.ToUpper(strings.TrimSpace(c.Param("ns")))
+	platformID := strings.ToLower(strings.TrimSpace(c.Param("platformId")))
+
+	if namespace == "" || platformID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_request",
+			"error_description": "namespace and platformId are required",
+		})
+		return
+	}
+
+	db, err := s.GetIAMReadDB()
+	if err != nil {
+		if err == ErrUserDBDSNNotSet {
+			c.JSON(http.StatusNotImplemented, gin.H{
+				"error":             "not_implemented",
+				"error_description": "database not configured",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to connect to database",
+		})
+		return
+	}
+
+	platformClientStore := store.NewPlatformClientStore(db)
+	client, err := platformClientStore.GetByNamespaceAndPlatform(c.Request.Context(), namespace, platformID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to query platform client",
+		})
+		return
+	}
+
+	if client == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":             "not_found",
+			"error_description": "platform client not found",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, client)
+}
+
+// HandleCreatePlatformClientGin creates a new platform client configuration.
+// Route: POST /iam/v1/admin/namespaces/:ns/platform-clients
+func (s *Server) HandleCreatePlatformClientGin(c *gin.Context) {
+	namespace := strings.ToUpper(strings.TrimSpace(c.Param("ns")))
+	if namespace == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_request",
+			"error_description": "namespace is required",
+		})
+		return
+	}
+
+	var req models.PlatformClient
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_request",
+			"error_description": "invalid JSON body: " + err.Error(),
+		})
+		return
+	}
+
+	// Validate required fields
+	if req.PlatformID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_request",
+			"error_description": "platform_id is required",
+		})
+		return
+	}
+	if req.ClientID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_request",
+			"error_description": "client_id is required",
+		})
+		return
+	}
+
+	// Set namespace from path
+	req.Namespace = namespace
+	req.PlatformID = strings.ToLower(req.PlatformID)
+
+	db, err := s.GetPrimaryDB()
+	if err != nil {
+		if err == ErrUserDBDSNNotSet {
+			c.JSON(http.StatusNotImplemented, gin.H{
+				"error":             "not_implemented",
+				"error_description": "database not configured",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to connect to database",
+		})
+		return
+	}
+
+	platformClientStore := store.NewPlatformClientStore(db)
+
+	// Check if already exists
+	existing, err := platformClientStore.GetByNamespaceAndPlatform(c.Request.Context(), namespace, req.PlatformID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to check existing platform client",
+		})
+		return
+	}
+	if existing != nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":             "conflict",
+			"error_description": "platform client already exists for this namespace",
+		})
+		return
+	}
+
+	if err := platformClientStore.Create(c.Request.Context(), &req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to create platform client: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusCreated, req)
+}
+
+// HandleUpdatePlatformClientGin updates an existing platform client configuration.
+// Route: PUT /iam/v1/admin/namespaces/:ns/platform-clients/:platformId
+func (s *Server) HandleUpdatePlatformClientGin(c *gin.Context) {
+	namespace := strings.ToUpper(strings.TrimSpace(c.Param("ns")))
+	platformID := strings.ToLower(strings.TrimSpace(c.Param("platformId")))
+
+	if namespace == "" || platformID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_request",
+			"error_description": "namespace and platformId are required",
+		})
+		return
+	}
+
+	var req models.PlatformClient
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_request",
+			"error_description": "invalid JSON body: " + err.Error(),
+		})
+		return
+	}
+
+	db, err := s.GetPrimaryDB()
+	if err != nil {
+		if err == ErrUserDBDSNNotSet {
+			c.JSON(http.StatusNotImplemented, gin.H{
+				"error":             "not_implemented",
+				"error_description": "database not configured",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to connect to database",
+		})
+		return
+	}
+
+	platformClientStore := store.NewPlatformClientStore(db)
+
+	// Check if exists
+	existing, err := platformClientStore.GetByNamespaceAndPlatform(c.Request.Context(), namespace, platformID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to query platform client",
+		})
+		return
+	}
+	if existing == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":             "not_found",
+			"error_description": "platform client not found",
+		})
+		return
+	}
+
+	// Preserve ID, namespace, and active status from existing record
+	req.ID = existing.ID
+	req.Namespace = namespace
+	req.PlatformID = platformID
+	req.CreatedAt = existing.CreatedAt
+	req.Active = existing.Active // Preserve active status
+
+	if err := platformClientStore.Update(c.Request.Context(), &req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to update platform client",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, req)
+}
+
+// HandleDeletePlatformClientGin deletes a platform client configuration.
+// Route: DELETE /iam/v1/admin/namespaces/:ns/platform-clients/:platformId
+func (s *Server) HandleDeletePlatformClientGin(c *gin.Context) {
+	namespace := strings.ToUpper(strings.TrimSpace(c.Param("ns")))
+	platformID := strings.ToLower(strings.TrimSpace(c.Param("platformId")))
+
+	if namespace == "" || platformID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_request",
+			"error_description": "namespace and platformId are required",
+		})
+		return
+	}
+
+	db, err := s.GetPrimaryDB()
+	if err != nil {
+		if err == ErrUserDBDSNNotSet {
+			c.JSON(http.StatusNotImplemented, gin.H{
+				"error":             "not_implemented",
+				"error_description": "database not configured",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to connect to database",
+		})
+		return
+	}
+
+	platformClientStore := store.NewPlatformClientStore(db)
+
+	// Check if exists
+	existing, err := platformClientStore.GetByNamespaceAndPlatform(c.Request.Context(), namespace, platformID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to query platform client",
+		})
+		return
+	}
+	if existing == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":             "not_found",
+			"error_description": "platform client not found",
+		})
+		return
+	}
+
+	if err := platformClientStore.Delete(c.Request.Context(), namespace, platformID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to delete platform client",
+		})
+		return
+	}
+
+	c.JSON(http.StatusNoContent, nil)
+}
