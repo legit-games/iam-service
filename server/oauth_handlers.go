@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -17,25 +18,32 @@ import (
 // HandleAuthorizeRequest the authorization request handling
 func (s *Server) HandleAuthorizeRequest(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
+	log.Printf("HandleAuthorizeRequest: START method=%s", r.Method)
 
 	req, err := s.ValidationAuthorizeRequest(r)
 	if err != nil {
+		log.Printf("HandleAuthorizeRequest: ValidationAuthorizeRequest error: %v", err)
 		return s.handleError(w, req, err)
 	}
+	log.Printf("HandleAuthorizeRequest: ValidationAuthorizeRequest OK, clientID=%s, redirectURI=%s", req.ClientID, req.RedirectURI)
 
 	// user authorization
 	userID, err := s.UserAuthorizationHandler(w, r)
 	if err != nil {
+		log.Printf("HandleAuthorizeRequest: UserAuthorizationHandler error: %v", err)
 		return s.handleError(w, req, err)
 	} else if userID == "" {
+		log.Printf("HandleAuthorizeRequest: UserAuthorizationHandler returned empty userID (redirect)")
 		return nil
 	}
 	req.UserID = userID
+	log.Printf("HandleAuthorizeRequest: UserAuthorizationHandler OK, userID=%s", userID)
 
 	// specify the scope of authorization
 	if fn := s.AuthorizeScopeHandler; fn != nil {
 		scope, err := fn(w, r)
 		if err != nil {
+			log.Printf("HandleAuthorizeRequest: AuthorizeScopeHandler error: %v", err)
 			return err
 		} else if scope != "" {
 			req.Scope = scope
@@ -46,15 +54,19 @@ func (s *Server) HandleAuthorizeRequest(w http.ResponseWriter, r *http.Request) 
 	if fn := s.AccessTokenExpHandler; fn != nil {
 		exp, err := fn(w, r)
 		if err != nil {
+			log.Printf("HandleAuthorizeRequest: AccessTokenExpHandler error: %v", err)
 			return err
 		}
 		req.AccessTokenExp = exp
 	}
 
+	log.Printf("HandleAuthorizeRequest: calling GetAuthorizeToken")
 	ti, err := s.GetAuthorizeToken(ctx, req)
 	if err != nil {
+		log.Printf("HandleAuthorizeRequest: GetAuthorizeToken error: %v", err)
 		return s.handleError(w, req, err)
 	}
+	log.Printf("HandleAuthorizeRequest: GetAuthorizeToken OK")
 
 	// If the redirect URI is empty, the default domain provided by the client is used.
 	if req.RedirectURI == "" {
@@ -183,7 +195,11 @@ func (s *Server) GetAuthorizeToken(ctx context.Context, req *AuthorizeRequest) (
 	tgr.CodeChallenge = req.CodeChallenge
 	tgr.CodeChallengeMethod = req.CodeChallengeMethod
 
-	return s.Manager.GenerateAuthToken(ctx, req.ResponseType, tgr)
+	ti, err := s.Manager.GenerateAuthToken(ctx, req.ResponseType, tgr)
+	if err != nil {
+		log.Printf("GetAuthorizeToken: Manager.GenerateAuthToken error: %v", err)
+	}
+	return ti, err
 }
 
 // GetAuthorizeData get authorization response data
@@ -318,16 +334,21 @@ func (s *Server) ValidationTokenRequest(r *http.Request) (oauth2.GrantType, *oau
 // HandleTokenRequest token request handling
 func (s *Server) HandleTokenRequest(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
+	log.Printf("HandleTokenRequest: START grant_type=%s", r.FormValue("grant_type"))
 
 	gt, tgr, err := s.ValidationTokenRequest(r)
 	if err != nil {
+		log.Printf("HandleTokenRequest: ValidationTokenRequest error: %v", err)
 		return s.tokenError(w, err)
 	}
+	log.Printf("HandleTokenRequest: ValidationTokenRequest OK, grant_type=%s", gt)
 
 	ti, err := s.GetAccessToken(ctx, gt, tgr)
 	if err != nil {
+		log.Printf("HandleTokenRequest: GetAccessToken error: %v", err)
 		return s.tokenError(w, err)
 	}
+	log.Printf("HandleTokenRequest: GetAccessToken OK")
 	// enrich context for JWT generator: namespace and permissions resolver
 	ctx = context.WithValue(ctx, "ns", strings.ToUpper(strings.TrimSpace(FormValue(r, "ns"))))
 	ctx = context.WithValue(ctx, "perm_resolver", func(c context.Context, userID, ns string) []string {

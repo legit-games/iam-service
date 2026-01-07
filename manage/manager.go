@@ -2,6 +2,7 @@ package manage
 
 import (
 	"context"
+	"log"
 	"net/url"
 	"time"
 
@@ -151,9 +152,11 @@ func (m *Manager) GetClient(ctx context.Context, clientID string) (cli oauth2.Cl
 func (m *Manager) GenerateAuthToken(ctx context.Context, rt oauth2.ResponseType, tgr *oauth2.TokenGenerateRequest) (oauth2.TokenInfo, error) {
 	cli, err := m.GetClient(ctx, tgr.ClientID)
 	if err != nil {
+		log.Printf("GenerateAuthToken: GetClient error: %v", err)
 		return nil, err
 	} else if tgr.RedirectURI != "" {
 		if err := m.validateURI(cli.GetDomain(), tgr.RedirectURI); err != nil {
+			log.Printf("GenerateAuthToken: validateURI error (domain=%s, uri=%s): %v", cli.GetDomain(), tgr.RedirectURI, err)
 			return nil, err
 		}
 	}
