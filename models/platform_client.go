@@ -24,7 +24,7 @@ type PlatformClient struct {
 	GenericOauthFlow      bool      `json:"generic_oauth_flow" db:"generic_oauth_flow"`
 	AuthorizationEndpoint string    `json:"authorization_endpoint,omitempty" db:"authorization_endpoint"`
 	TokenEndpoint         string    `json:"token_endpoint,omitempty" db:"token_endpoint"`
-	UserInfoEndpoint      string    `json:"userinfo_endpoint,omitempty" db:"userinfo_endpoint"`
+	UserInfoEndpoint      string    `json:"userinfo_endpoint,omitempty" db:"userinfo_endpoint" gorm:"column:userinfo_endpoint"`
 	Scopes                string    `json:"scopes,omitempty" db:"scopes"`
 	JwksEndpoint          string    `json:"jwks_endpoint,omitempty" db:"jwks_endpoint"`
 	Active                bool      `json:"active" db:"active" gorm:"default:true"`
