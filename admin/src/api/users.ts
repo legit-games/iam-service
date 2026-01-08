@@ -39,9 +39,9 @@ export const userApi = {
   unlinkAccount: (accountId: string, data: UnlinkAccountRequest) =>
     apiClient.post(`/iam/v1/accounts/${accountId}/unlink`, data),
 
-  // Get user info (placeholder - may need actual endpoint)
-  getUser: (userId: string) =>
-    apiClient.get<User>(`/iam/v1/admin/users/${userId}`),
+  // Get user info by namespace and user ID
+  getUser: (namespace: string, userId: string) =>
+    apiClient.get<{ user: User }>(`/iam/v1/admin/namespaces/${namespace}/users/${userId}`),
 
   // Get account info (placeholder - may need actual endpoint)
   getAccount: (accountId: string) =>

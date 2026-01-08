@@ -1,11 +1,12 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Descriptions, Button, Tag, Space, Empty } from 'antd';
+import { Card, Descriptions, Button, Tag, Space, Empty, Spin, Alert } from 'antd';
 import { ArrowLeftOutlined, StopOutlined } from '@ant-design/icons';
 import { useState } from 'react';
 import BanModal from '../../components/BanModal';
 import { useNamespaceContext } from '../../hooks/useNamespaceContext';
 import { useBanUser, useUserBans } from '../../hooks/useBans';
 import { useUserPlatforms } from '../../hooks/usePlatforms';
+import { useUser } from '../../hooks/useUsers';
 
 export default function UserDetail() {
   const { id } = useParams<{ id: string }>();
@@ -14,7 +15,12 @@ export default function UserDetail() {
 
   const [banModalOpen, setBanModalOpen] = useState(false);
 
-  // These would need actual API endpoints to be implemented
+  // Fetch user details
+  const { data: user, isLoading: userLoading, error: userError } = useUser(
+    currentNamespace || '',
+    id || ''
+  );
+
   const { data: platforms = [], isLoading: platformsLoading } = useUserPlatforms(
     currentNamespace || '',
     id || ''
@@ -34,6 +40,57 @@ export default function UserDetail() {
     return <Empty description="No user ID provided" />;
   }
 
+  if (!currentNamespace) {
+    return (
+      <div>
+        <div className="page-header">
+          <Space>
+            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/users')}>
+              Back
+            </Button>
+            <h1 style={{ margin: 0 }}>User: {id}</h1>
+          </Space>
+        </div>
+        <Alert
+          message="Namespace Required"
+          description="Please select a namespace from the header to view user details."
+          type="warning"
+          showIcon
+        />
+      </div>
+    );
+  }
+
+  if (userLoading) {
+    return (
+      <div style={{ textAlign: 'center', padding: 50 }}>
+        <Spin size="large" />
+        <p>Loading user details...</p>
+      </div>
+    );
+  }
+
+  if (userError || !user) {
+    return (
+      <div>
+        <div className="page-header">
+          <Space>
+            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/users')}>
+              Back
+            </Button>
+            <h1 style={{ margin: 0 }}>User: {id}</h1>
+          </Space>
+        </div>
+        <Alert
+          message="User Not Found"
+          description={`No user found with ID "${id}" in namespace "${currentNamespace}".`}
+          type="error"
+          showIcon
+        />
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -47,7 +104,6 @@ export default function UserDetail() {
           danger
           icon={<StopOutlined />}
           onClick={() => setBanModalOpen(true)}
-          disabled={!currentNamespace}
         >
           Ban User
         </Button>
@@ -56,15 +112,26 @@ export default function UserDetail() {
       <Card title="User Information" style={{ marginBottom: 16 }}>
         <Descriptions column={2} bordered>
           <Descriptions.Item label="User ID">
-            <code>{id}</code>
+            <code>{user.id}</code>
+          </Descriptions.Item>
+          <Descriptions.Item label="Account ID">
+            <code>{user.account_id}</code>
+          </Descriptions.Item>
+          <Descriptions.Item label="Type">
+            <Tag color={user.user_type === 'HEAD' ? 'blue' : 'green'}>{user.user_type}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="Namespace">
-            {currentNamespace ? <Tag>{currentNamespace}</Tag> : 'N/A'}
+            {user.namespace ? <Tag>{user.namespace}</Tag> : <Tag color="purple">HEAD (Global)</Tag>}
+          </Descriptions.Item>
+          {user.provider_type && (
+            <Descriptions.Item label="Provider">
+              <Tag>{user.provider_type}</Tag>
+            </Descriptions.Item>
+          )}
+          <Descriptions.Item label="Status">
+            <Tag color={user.orphaned ? 'red' : 'green'}>{user.orphaned ? 'Orphaned' : 'Active'}</Tag>
           </Descriptions.Item>
         </Descriptions>
-        <div style={{ marginTop: 16, color: '#666' }}>
-          Note: Full user details require the user lookup API endpoint to be implemented.
-        </div>
       </Card>
 
       <Card title="Active Bans" style={{ marginBottom: 16 }} loading={bansLoading}>

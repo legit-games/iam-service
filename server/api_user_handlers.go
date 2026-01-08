@@ -289,6 +289,43 @@ func (s *Server) HandleUnbanUserGin(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "unbanned", "user_id": userID, "namespace": ns, "actor_account_id": actorAccountID})
 }
 
+// GetUser returns user details by ID within a namespace
+func (s *Server) HandleGetUserGin(c *gin.Context) {
+	if s.userStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "user store not initialized"})
+		return
+	}
+	ns := strings.ToUpper(strings.TrimSpace(c.Param("ns")))
+	userID := strings.TrimSpace(c.Param("id"))
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "user ID is required"})
+		return
+	}
+
+	var user map[string]interface{}
+	db := s.userStore.DB
+	query := `SELECT id, account_id, namespace, user_type, provider_type, provider_account_id, orphaned, created_at, updated_at FROM users WHERE id = ?`
+	args := []interface{}{userID}
+
+	// If namespace is provided, filter by it
+	if ns != "" {
+		query += ` AND (namespace = ? OR namespace IS NULL)`
+		args = append(args, ns)
+	}
+
+	if err := db.WithContext(c.Request.Context()).Raw(query, args...).Scan(&user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
+		return
+	}
+
+	if user == nil || len(user) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "error_description": "user not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"user": user})
+}
+
 // List bans for a user in a namespace
 func (s *Server) HandleListUserBansGin(c *gin.Context) {
 	if s.userStore == nil {
