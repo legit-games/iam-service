@@ -50,10 +50,10 @@ func FromClient(c *models.Client) ClientResponse {
 }
 
 // FromClients converts a slice of models.Client to a slice of ClientResponse.
-func FromClients(clients []*models.Client) []ClientResponse {
+func FromClients(clients []models.Client) []ClientResponse {
 	responses := make([]ClientResponse, len(clients))
-	for i, c := range clients {
-		responses[i] = FromClient(c)
+	for i := range clients {
+		responses[i] = FromClient(&clients[i])
 	}
 	return responses
 }
