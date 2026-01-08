@@ -7,7 +7,7 @@ export const BANS_KEY = ['bans'];
 export function useNamespaceBans(namespace: string, active?: boolean) {
   return useQuery({
     queryKey: [...BANS_KEY, namespace, { active }],
-    queryFn: () => banApi.listNamespaceBans(namespace, { active }).then((r) => r.data),
+    queryFn: () => banApi.listNamespaceBans(namespace, { active }).then((r) => r.data.bans || []),
     enabled: !!namespace,
   });
 }
@@ -15,7 +15,7 @@ export function useNamespaceBans(namespace: string, active?: boolean) {
 export function useUserBans(namespace: string, userId: string) {
   return useQuery({
     queryKey: [...BANS_KEY, namespace, 'user', userId],
-    queryFn: () => banApi.listUserBans(namespace, userId).then((r) => r.data),
+    queryFn: () => banApi.listUserBans(namespace, userId).then((r) => r.data.bans || []),
     enabled: !!namespace && !!userId,
   });
 }
@@ -23,7 +23,7 @@ export function useUserBans(namespace: string, userId: string) {
 export function useAccountBans(accountId: string) {
   return useQuery({
     queryKey: [...BANS_KEY, 'account', accountId],
-    queryFn: () => banApi.listAccountBans(accountId).then((r) => r.data),
+    queryFn: () => banApi.listAccountBans(accountId).then((r) => r.data.bans || []),
     enabled: !!accountId,
   });
 }
