@@ -3,6 +3,7 @@ import { createContext } from 'react';
 export interface AdminUser {
   id: string;
   username: string;
+  displayName?: string;
   accountId: string;
   namespace?: string;
   scopes: string[];

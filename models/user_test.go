@@ -1,9 +1,95 @@
 package models
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
+
+func TestUserDisplayName(t *testing.T) {
+	displayName := "John Doe"
+	user := User{
+		ID:          "user-123",
+		AccountID:   "account-456",
+		UserType:    UserHead,
+		DisplayName: &displayName,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	if user.DisplayName == nil {
+		t.Fatal("DisplayName should not be nil")
+	}
+	if *user.DisplayName != "John Doe" {
+		t.Errorf("Expected DisplayName to be 'John Doe', got '%s'", *user.DisplayName)
+	}
+}
+
+func TestUserDisplayNameNil(t *testing.T) {
+	user := User{
+		ID:          "user-123",
+		AccountID:   "account-456",
+		UserType:    UserHead,
+		DisplayName: nil,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	if user.DisplayName != nil {
+		t.Errorf("DisplayName should be nil, got '%s'", *user.DisplayName)
+	}
+}
+
+func TestUserDisplayNameJSONSerialization(t *testing.T) {
+	displayName := "Test User"
+	user := User{
+		ID:          "user-123",
+		AccountID:   "account-456",
+		UserType:    UserHead,
+		DisplayName: &displayName,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	jsonData, err := json.Marshal(user)
+	if err != nil {
+		t.Fatalf("Failed to marshal user: %v", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(jsonData, &result); err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+
+	if result["display_name"] != "Test User" {
+		t.Errorf("Expected display_name to be 'Test User', got '%v'", result["display_name"])
+	}
+}
+
+func TestUserDisplayNameJSONOmitEmpty(t *testing.T) {
+	user := User{
+		ID:          "user-123",
+		AccountID:   "account-456",
+		UserType:    UserHead,
+		DisplayName: nil,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	jsonData, err := json.Marshal(user)
+	if err != nil {
+		t.Fatalf("Failed to marshal user: %v", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(jsonData, &result); err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+
+	if _, exists := result["display_name"]; exists {
+		t.Error("display_name should be omitted when nil")
+	}
+}
 
 // ...existing code...
 

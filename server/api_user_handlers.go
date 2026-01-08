@@ -324,7 +324,7 @@ func (s *Server) HandleListUsersGin(c *gin.Context) {
 	var users []map[string]interface{}
 
 	query := `
-		SELECT u.id, u.account_id, u.namespace, u.user_type, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+		SELECT u.id, u.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
 		FROM users u
 		LEFT JOIN accounts a ON u.account_id = a.id
 		WHERE 1=1`
@@ -410,19 +410,19 @@ func (s *Server) HandleGetUserGin(c *gin.Context) {
 	switch searchType {
 	case "user_id":
 		query = `
-			SELECT u.id, u.account_id, u.namespace, u.user_type, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			SELECT u.id, u.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
 			FROM users u
 			WHERE u.id = ?`
 		args = []interface{}{searchID}
 	case "account_id":
 		query = `
-			SELECT u.id, u.account_id, u.namespace, u.user_type, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			SELECT u.id, u.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
 			FROM users u
 			WHERE u.account_id = ?`
 		args = []interface{}{searchID}
 	case "username":
 		query = `
-			SELECT u.id, u.account_id, u.namespace, u.user_type, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			SELECT u.id, u.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
 			FROM users u
 			INNER JOIN accounts a ON u.account_id = a.id
 			WHERE a.username = ?`
@@ -430,7 +430,7 @@ func (s *Server) HandleGetUserGin(c *gin.Context) {
 	default:
 		// Default: search by user ID, account ID, or username (join with accounts table)
 		query = `
-			SELECT u.id, u.account_id, u.namespace, u.user_type, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			SELECT u.id, u.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
 			FROM users u
 			LEFT JOIN accounts a ON u.account_id = a.id
 			WHERE (u.id = ? OR u.account_id = ? OR a.username = ?)`

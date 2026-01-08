@@ -100,12 +100,35 @@ func (s *Server) HandleOIDCUserInfo(w http.ResponseWriter, r *http.Request) erro
 		w.WriteHeader(http.StatusUnauthorized)
 		return nil
 	}
+	userID := ti.GetUserID()
 	claims := map[string]interface{}{
-		"sub":   ti.GetUserID(),
+		"sub":   userID,
 		"aud":   ti.GetClientID(),
 		"iss":   s.Config.Issuer,
 		"email": "",
 	}
+
+	// Fetch user details from database to get display_name and username
+	// Note: userID from token is actually account_id (from accounts table)
+	db, err := s.GetIAMReadDB()
+	if err == nil {
+		var displayName, username *string
+		row := db.WithContext(r.Context()).Raw(`
+			SELECT u.display_name, a.username
+			FROM users u
+			LEFT JOIN accounts a ON u.account_id = a.id
+			WHERE u.account_id = ?`, userID).Row()
+		if row.Scan(&displayName, &username) == nil {
+			if displayName != nil && *displayName != "" {
+				claims["display_name"] = *displayName
+			}
+			if username != nil && *username != "" {
+				claims["preferred_username"] = *username
+			}
+			claims["account_id"] = userID
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	return json.NewEncoder(w).Encode(claims)
 }

@@ -34,6 +34,7 @@ type User struct {
 	AccountID         string    `json:"account_id" db:"account_id"`
 	Namespace         *string   `json:"namespace,omitempty" db:"namespace"`
 	UserType          UserType  `json:"user_type" db:"user_type"`
+	DisplayName       *string   `json:"display_name,omitempty" db:"display_name"`
 	ProviderType      *string   `json:"provider_type,omitempty" db:"provider_type"`
 	ProviderAccountID *string   `json:"provider_account_id,omitempty" db:"provider_account_id"`
 	Orphaned          bool      `json:"orphaned" db:"orphaned"`

@@ -39,14 +39,15 @@ VALUES (
 ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash;
 
 -- Create admin user (HEAD type, no namespace for head users)
-INSERT INTO users (id, account_id, namespace, user_type)
+INSERT INTO users (id, account_id, namespace, user_type, display_name)
 VALUES (
     'admin-user-001',
     'admin-account-001',
     NULL,
-    'HEAD'
+    'HEAD',
+    'Admin'
 )
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name;
 
 -- Create admin role with full permissions
 INSERT INTO roles (id, namespace, name, role_type, permissions)

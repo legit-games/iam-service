@@ -99,11 +99,11 @@ func (s *UserStore) Unlink(ctx context.Context, accountID, namespace, providerTy
 // GetUser returns HEAD user if namespace is empty, otherwise namespace-scoped user.
 func (s *UserStore) GetUser(ctx context.Context, accountID string, namespace *string) (*models.User, error) {
 	var u models.User
-	q := `SELECT id, account_id, namespace, user_type, provider_type, provider_account_id, orphaned, created_at, updated_at FROM users WHERE account_id=? AND user_type='HEAD'`
+	q := `SELECT id, account_id, namespace, user_type, display_name, provider_type, provider_account_id, orphaned, created_at, updated_at FROM users WHERE account_id=? AND user_type='HEAD'`
 	var args []interface{}
 	args = append(args, accountID)
 	if namespace != nil {
-		q = `SELECT id, account_id, namespace, user_type, provider_type, provider_account_id, orphaned, created_at, updated_at FROM users WHERE account_id=? AND namespace=? AND user_type='BODY'`
+		q = `SELECT id, account_id, namespace, user_type, display_name, provider_type, provider_account_id, orphaned, created_at, updated_at FROM users WHERE account_id=? AND namespace=? AND user_type='BODY'`
 		args = []interface{}{accountID, *namespace}
 	}
 	if err := s.DB.WithContext(ctx).Raw(q, args...).Scan(&u).Error; err != nil {
