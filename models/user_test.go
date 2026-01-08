@@ -10,8 +10,7 @@ func TestUserDisplayName(t *testing.T) {
 	displayName := "John Doe"
 	user := User{
 		ID:          "user-123",
-		AccountID:   "account-456",
-		UserType:    UserHead,
+				UserType:    UserHead,
 		DisplayName: &displayName,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
@@ -28,8 +27,7 @@ func TestUserDisplayName(t *testing.T) {
 func TestUserDisplayNameNil(t *testing.T) {
 	user := User{
 		ID:          "user-123",
-		AccountID:   "account-456",
-		UserType:    UserHead,
+				UserType:    UserHead,
 		DisplayName: nil,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
@@ -44,8 +42,7 @@ func TestUserDisplayNameJSONSerialization(t *testing.T) {
 	displayName := "Test User"
 	user := User{
 		ID:          "user-123",
-		AccountID:   "account-456",
-		UserType:    UserHead,
+				UserType:    UserHead,
 		DisplayName: &displayName,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
@@ -69,8 +66,7 @@ func TestUserDisplayNameJSONSerialization(t *testing.T) {
 func TestUserDisplayNameJSONOmitEmpty(t *testing.T) {
 	user := User{
 		ID:          "user-123",
-		AccountID:   "account-456",
-		UserType:    UserHead,
+				UserType:    UserHead,
 		DisplayName: nil,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),

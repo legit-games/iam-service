@@ -22,7 +22,11 @@ func (s *UserStore) CreateHeadAccount(ctx context.Context, accountID, username, 
 		if err := tx.Exec(`INSERT INTO accounts(id, username, password_hash, account_type) VALUES(?,?,?,?)`, accountID, username, passwordHash, string(models.AccountHead)).Error; err != nil {
 			return err
 		}
-		if err := tx.Exec(`INSERT INTO users(id, account_id, namespace, user_type, orphaned) VALUES(?,?,?,?,FALSE)`, models.LegitID(), accountID, nil, string(models.UserHead)).Error; err != nil {
+		userID := models.LegitID()
+		if err := tx.Exec(`INSERT INTO users(id, namespace, user_type, orphaned) VALUES(?,?,?,FALSE)`, userID, nil, string(models.UserHead)).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`INSERT INTO account_users(account_id, user_id) VALUES(?,?)`, accountID, userID).Error; err != nil {
 			return err
 		}
 		if err := tx.Exec(`INSERT INTO account_transactions(id, account_id, action, created_at) VALUES(?,?,?,?)`, models.LegitID(), accountID, "CREATE_HEAD", time.Now()).Error; err != nil {
@@ -38,7 +42,11 @@ func (s *UserStore) CreateHeadlessAccount(ctx context.Context, accountID, namesp
 		if err := tx.Exec(`INSERT INTO accounts(id, username, password_hash, account_type) VALUES(?,?,?,?)`, accountID, accountID, "", string(models.AccountHeadless)).Error; err != nil {
 			return err
 		}
-		if err := tx.Exec(`INSERT INTO users(id, account_id, namespace, user_type, provider_type, provider_account_id, orphaned) VALUES(?,?,?,?,?,?,FALSE)`, models.LegitID(), accountID, namespace, string(models.UserBody), providerType, providerAccountID).Error; err != nil {
+		userID := models.LegitID()
+		if err := tx.Exec(`INSERT INTO users(id, namespace, user_type, provider_type, provider_account_id, orphaned) VALUES(?,?,?,?,?,FALSE)`, userID, namespace, string(models.UserBody), providerType, providerAccountID).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`INSERT INTO account_users(account_id, user_id) VALUES(?,?)`, accountID, userID).Error; err != nil {
 			return err
 		}
 		if err := tx.Exec(`INSERT INTO account_transactions(id, account_id, action, namespace, created_at) VALUES(?,?,?,?,?)`, models.LegitID(), accountID, "CREATE_HEADLESS", namespace, time.Now()).Error; err != nil {
@@ -51,7 +59,14 @@ func (s *UserStore) CreateHeadlessAccount(ctx context.Context, accountID, namesp
 // Link transfers BODY users from headless to head account within a namespace.
 func (s *UserStore) Link(ctx context.Context, namespace string, headAccountID, headlessAccountID string) error {
 	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`UPDATE users SET account_id=? WHERE account_id=? AND namespace=? AND user_type='BODY'`, headAccountID, headlessAccountID, namespace).Error; err != nil {
+		// Update account_users: move BODY users from headless to head account
+		if err := tx.Exec(`
+			UPDATE account_users SET account_id=?
+			WHERE account_id=? AND user_id IN (
+				SELECT u.id FROM users u
+				JOIN account_users au ON au.user_id = u.id
+				WHERE au.account_id=? AND u.namespace=? AND u.user_type='BODY'
+			)`, headAccountID, headlessAccountID, headlessAccountID, namespace).Error; err != nil {
 			return err
 		}
 		if err := tx.Exec(`UPDATE accounts SET account_type='ORPHAN' WHERE id=?`, headlessAccountID).Error; err != nil {
@@ -70,7 +85,14 @@ func (s *UserStore) Link(ctx context.Context, namespace string, headAccountID, h
 // Unlink removes provider from user; if orphaned, mark/remove according to policy, then reevaluate account type.
 func (s *UserStore) Unlink(ctx context.Context, accountID, namespace, providerType, providerAccountID string) error {
 	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`UPDATE users SET provider_type=NULL, provider_account_id=NULL, orphaned=TRUE WHERE account_id=? AND namespace=? AND provider_type=? AND provider_account_id=?`, accountID, namespace, providerType, providerAccountID).Error; err != nil {
+		// Update user through join with account_users
+		if err := tx.Exec(`
+			UPDATE users SET provider_type=NULL, provider_account_id=NULL, orphaned=TRUE
+			WHERE id IN (
+				SELECT u.id FROM users u
+				JOIN account_users au ON au.user_id = u.id
+				WHERE au.account_id=? AND u.namespace=? AND u.provider_type=? AND u.provider_account_id=?
+			)`, accountID, namespace, providerType, providerAccountID).Error; err != nil {
 			return err
 		}
 		type row struct {
@@ -78,7 +100,10 @@ func (s *UserStore) Unlink(ctx context.Context, accountID, namespace, providerTy
 			Orphaned bool
 		}
 		var rows []row
-		if err := tx.Raw(`SELECT user_type, orphaned FROM users WHERE account_id=?`, accountID).Scan(&rows).Error; err != nil {
+		if err := tx.Raw(`
+			SELECT u.user_type, u.orphaned FROM users u
+			JOIN account_users au ON au.user_id = u.id
+			WHERE au.account_id=?`, accountID).Scan(&rows).Error; err != nil {
 			return err
 		}
 		var users []models.User
@@ -99,11 +124,17 @@ func (s *UserStore) Unlink(ctx context.Context, accountID, namespace, providerTy
 // GetUser returns HEAD user if namespace is empty, otherwise namespace-scoped user.
 func (s *UserStore) GetUser(ctx context.Context, accountID string, namespace *string) (*models.User, error) {
 	var u models.User
-	q := `SELECT id, account_id, namespace, user_type, display_name, provider_type, provider_account_id, orphaned, created_at, updated_at FROM users WHERE account_id=? AND user_type='HEAD'`
+	q := `SELECT u.id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+		FROM users u
+		JOIN account_users au ON au.user_id = u.id
+		WHERE au.account_id=? AND u.user_type='HEAD'`
 	var args []interface{}
 	args = append(args, accountID)
 	if namespace != nil {
-		q = `SELECT id, account_id, namespace, user_type, display_name, provider_type, provider_account_id, orphaned, created_at, updated_at FROM users WHERE account_id=? AND namespace=? AND user_type='BODY'`
+		q = `SELECT u.id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			FROM users u
+			JOIN account_users au ON au.user_id = u.id
+			WHERE au.account_id=? AND u.namespace=? AND u.user_type='BODY'`
 		args = []interface{}{accountID, *namespace}
 	}
 	if err := s.DB.WithContext(ctx).Raw(q, args...).Scan(&u).Error; err != nil {
@@ -237,9 +268,9 @@ func (s *UserStore) IsUserBannedByAccount(ctx context.Context, userID, namespace
 		return directBan, err
 	}
 
-	// Check account ban
+	// Check account ban via account_users bridge table
 	var accountID string
-	row := s.DB.WithContext(ctx).Raw(`SELECT account_id FROM users WHERE id=?`, userID).Row()
+	row := s.DB.WithContext(ctx).Raw(`SELECT account_id FROM account_users WHERE user_id=?`, userID).Row()
 	if err := row.Scan(&accountID); err != nil {
 		return false, err
 	}

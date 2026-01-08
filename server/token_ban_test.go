@@ -32,11 +32,13 @@ func setupTokenTestServer(t *testing.T) (*Server, *gorm.DB) {
 	testAccountID := "test-account-123"
 	testUserID := "test-user-456"
 
-	err = db.Exec(`
-		INSERT INTO accounts (id, username, account_type) VALUES (?, 'testuser', 'HEAD') ON CONFLICT (id) DO NOTHING;
-		INSERT INTO users (id, account_id, namespace, user_type) VALUES (?, ?, 'TESTNS', 'BODY') ON CONFLICT (id) DO NOTHING;
-	`, testAccountID, testUserID, testAccountID).Error
-	if err != nil {
+	if err = db.Exec(`INSERT INTO accounts (id, username, account_type) VALUES (?, 'testuser', 'HEAD') ON CONFLICT (id) DO NOTHING`, testAccountID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Exec(`INSERT INTO users (id, namespace, user_type) VALUES (?, 'TESTNS', 'BODY') ON CONFLICT (id) DO NOTHING`, testUserID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Exec(`INSERT INTO account_users (account_id, user_id) VALUES (?, ?) ON CONFLICT (account_id, user_id) DO NOTHING`, testAccountID, testUserID).Error; err != nil {
 		t.Fatal(err)
 	}
 

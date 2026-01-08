@@ -498,12 +498,12 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 	ctx = context.WithValue(ctx, "ns", ns)
 	ctx = context.WithValue(ctx, "perm_resolver", permResolver)
 
-	// Resolve actual user_id from users table using account_id (tgr.UserID is account_id)
+	// Resolve actual user_id from users table using account_id via account_users bridge table
 	if tgr.UserID != "" && s.userStore != nil {
 		db, err := s.GetIAMReadDB()
 		if err == nil {
 			var userID string
-			row := db.WithContext(ctx).Raw(`SELECT id FROM users WHERE account_id = ? LIMIT 1`, tgr.UserID).Row()
+			row := db.WithContext(ctx).Raw(`SELECT u.id FROM users u JOIN account_users au ON au.user_id = u.id WHERE au.account_id = ? LIMIT 1`, tgr.UserID).Row()
 			if row.Scan(&userID) == nil && userID != "" {
 				ctx = context.WithValue(ctx, "user_id", userID)
 			}

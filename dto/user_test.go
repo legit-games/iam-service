@@ -12,14 +12,13 @@ func TestFromUserWithDisplayName(t *testing.T) {
 	displayName := "John Doe"
 	user := &models.User{
 		ID:          "user-123",
-		AccountID:   "account-456",
 		UserType:    models.UserHead,
 		DisplayName: &displayName,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
 
-	response := FromUser(user)
+	response := FromUser(user, "account-456")
 
 	if response.DisplayName == nil {
 		t.Fatal("DisplayName should not be nil")
@@ -27,19 +26,21 @@ func TestFromUserWithDisplayName(t *testing.T) {
 	if *response.DisplayName != "John Doe" {
 		t.Errorf("Expected DisplayName to be 'John Doe', got '%s'", *response.DisplayName)
 	}
+	if response.AccountID != "account-456" {
+		t.Errorf("Expected AccountID to be 'account-456', got '%s'", response.AccountID)
+	}
 }
 
 func TestFromUserWithoutDisplayName(t *testing.T) {
 	user := &models.User{
 		ID:          "user-123",
-		AccountID:   "account-456",
 		UserType:    models.UserHead,
 		DisplayName: nil,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
 
-	response := FromUser(user)
+	response := FromUser(user, "account-456")
 
 	if response.DisplayName != nil {
 		t.Errorf("DisplayName should be nil, got '%s'", *response.DisplayName)
@@ -52,7 +53,6 @@ func TestFromUsersWithDisplayName(t *testing.T) {
 	users := []*models.User{
 		{
 			ID:          "user-1",
-			AccountID:   "account-1",
 			UserType:    models.UserHead,
 			DisplayName: &displayName1,
 			CreatedAt:   time.Now(),
@@ -60,7 +60,6 @@ func TestFromUsersWithDisplayName(t *testing.T) {
 		},
 		{
 			ID:          "user-2",
-			AccountID:   "account-2",
 			UserType:    models.UserBody,
 			DisplayName: &displayName2,
 			CreatedAt:   time.Now(),
@@ -68,7 +67,7 @@ func TestFromUsersWithDisplayName(t *testing.T) {
 		},
 	}
 
-	responses := FromUsers(users)
+	responses := FromUsers(users, "account-1")
 
 	if len(responses) != 2 {
 		t.Fatalf("Expected 2 responses, got %d", len(responses))
@@ -79,6 +78,9 @@ func TestFromUsersWithDisplayName(t *testing.T) {
 	}
 	if responses[1].DisplayName == nil || *responses[1].DisplayName != "User Two" {
 		t.Errorf("Expected second user DisplayName to be 'User Two'")
+	}
+	if responses[0].AccountID != "account-1" || responses[1].AccountID != "account-1" {
+		t.Errorf("Expected all users to have AccountID 'account-1'")
 	}
 }
 
@@ -142,7 +144,6 @@ func TestFromUserPreservesAllFields(t *testing.T) {
 
 	user := &models.User{
 		ID:                "user-full",
-		AccountID:         "account-full",
 		Namespace:         &namespace,
 		UserType:          models.UserBody,
 		DisplayName:       &displayName,
@@ -153,13 +154,13 @@ func TestFromUserPreservesAllFields(t *testing.T) {
 		UpdatedAt:         now,
 	}
 
-	response := FromUser(user)
+	response := FromUser(user, "account-full")
 
 	if response.ID != user.ID {
 		t.Errorf("ID mismatch: expected '%s', got '%s'", user.ID, response.ID)
 	}
-	if response.AccountID != user.AccountID {
-		t.Errorf("AccountID mismatch: expected '%s', got '%s'", user.AccountID, response.AccountID)
+	if response.AccountID != "account-full" {
+		t.Errorf("AccountID mismatch: expected 'account-full', got '%s'", response.AccountID)
 	}
 	if *response.Namespace != *user.Namespace {
 		t.Errorf("Namespace mismatch: expected '%s', got '%s'", *user.Namespace, *response.Namespace)

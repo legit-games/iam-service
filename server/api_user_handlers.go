@@ -226,14 +226,14 @@ func (s *Server) HandleBanUserGin(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "missing user id in token"})
 		return
 	}
-	// lookup account_id by user id
+	// lookup account_id by user id via account_users bridge table
 	db, dberr := s.GetIAMReadDB()
 	if dberr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": dberr.Error()})
 		return
 	}
 	var actorAccountID string
-	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM users WHERE id=$1`, callerUserID).Row()
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM account_users WHERE user_id=$1`, callerUserID).Row()
 	if err := row.Scan(&actorAccountID); err != nil || strings.TrimSpace(actorAccountID) == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "unable to resolve actor account"})
 		return
@@ -272,7 +272,7 @@ func (s *Server) HandleUnbanUserGin(c *gin.Context) {
 		return
 	}
 	var actorAccountID string
-	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM users WHERE id=$1`, callerUserID).Row()
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM account_users WHERE user_id=$1`, callerUserID).Row()
 	if err := row.Scan(&actorAccountID); err != nil || strings.TrimSpace(actorAccountID) == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "unable to resolve actor account"})
 		return
@@ -324,9 +324,10 @@ func (s *Server) HandleListUsersGin(c *gin.Context) {
 	var users []map[string]interface{}
 
 	query := `
-		SELECT u.id, u.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+		SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
 		FROM users u
-		LEFT JOIN accounts a ON u.account_id = a.id
+		JOIN account_users au ON au.user_id = u.id
+		LEFT JOIN accounts a ON au.account_id = a.id
 		WHERE 1=1`
 	args := []interface{}{}
 
@@ -343,14 +344,14 @@ func (s *Server) HandleListUsersGin(c *gin.Context) {
 			query += ` AND u.id LIKE ?`
 			args = append(args, "%"+searchQuery+"%")
 		case "account_id":
-			query += ` AND u.account_id LIKE ?`
+			query += ` AND au.account_id LIKE ?`
 			args = append(args, "%"+searchQuery+"%")
 		case "username":
 			query += ` AND a.username LIKE ?`
 			args = append(args, "%"+searchQuery+"%")
 		default:
 			// Search all fields
-			query += ` AND (u.id LIKE ? OR u.account_id LIKE ? OR a.username LIKE ?)`
+			query += ` AND (u.id LIKE ? OR au.account_id LIKE ? OR a.username LIKE ?)`
 			args = append(args, "%"+searchQuery+"%", "%"+searchQuery+"%", "%"+searchQuery+"%")
 		}
 	}
@@ -410,30 +411,34 @@ func (s *Server) HandleGetUserGin(c *gin.Context) {
 	switch searchType {
 	case "user_id":
 		query = `
-			SELECT u.id, u.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
 			FROM users u
+			JOIN account_users au ON au.user_id = u.id
 			WHERE u.id = ?`
 		args = []interface{}{searchID}
 	case "account_id":
 		query = `
-			SELECT u.id, u.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
 			FROM users u
-			WHERE u.account_id = ?`
+			JOIN account_users au ON au.user_id = u.id
+			WHERE au.account_id = ?`
 		args = []interface{}{searchID}
 	case "username":
 		query = `
-			SELECT u.id, u.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
 			FROM users u
-			INNER JOIN accounts a ON u.account_id = a.id
+			JOIN account_users au ON au.user_id = u.id
+			INNER JOIN accounts a ON au.account_id = a.id
 			WHERE a.username = ?`
 		args = []interface{}{searchID}
 	default:
 		// Default: search by user ID, account ID, or username (join with accounts table)
 		query = `
-			SELECT u.id, u.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
 			FROM users u
-			LEFT JOIN accounts a ON u.account_id = a.id
-			WHERE (u.id = ? OR u.account_id = ? OR a.username = ?)`
+			JOIN account_users au ON au.user_id = u.id
+			LEFT JOIN accounts a ON au.account_id = a.id
+			WHERE (u.id = ? OR au.account_id = ? OR a.username = ?)`
 		args = []interface{}{searchID, searchID, searchID}
 	}
 
@@ -529,7 +534,7 @@ func (s *Server) HandleBanAccountGin(c *gin.Context) {
 		return
 	}
 	var actorAccountID string
-	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM users WHERE id=$1`, callerUserID).Row()
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM account_users WHERE user_id=$1`, callerUserID).Row()
 	if err := row.Scan(&actorAccountID); err != nil || strings.TrimSpace(actorAccountID) == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "unable to resolve actor account"})
 		return
@@ -567,7 +572,7 @@ func (s *Server) HandleUnbanAccountGin(c *gin.Context) {
 		return
 	}
 	var actorAccountID string
-	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM users WHERE id=$1`, callerUserID).Row()
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM account_users WHERE user_id=$1`, callerUserID).Row()
 	if err := row.Scan(&actorAccountID); err != nil || strings.TrimSpace(actorAccountID) == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "unable to resolve actor account"})
 		return

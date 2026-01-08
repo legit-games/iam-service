@@ -12,6 +12,22 @@ const (
 	AccountOrphan   AccountType = "ORPHAN"
 )
 
+// Account represents an account in the IAM system.
+type Account struct {
+	ID           string      `json:"id" db:"id"`
+	Username     string      `json:"username" db:"username"`
+	PasswordHash string      `json:"-" db:"password_hash"` // Never expose in JSON
+	AccountType  AccountType `json:"account_type" db:"account_type"`
+	CreatedAt    time.Time   `json:"created_at" db:"created_at"`
+}
+
+// AccountUser represents the bridge table linking accounts and users.
+type AccountUser struct {
+	AccountID string    `json:"account_id" db:"account_id"`
+	UserID    string    `json:"user_id" db:"user_id"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+}
+
 // UserType indicates how a user was created.
 type UserType string
 
@@ -29,9 +45,9 @@ const (
 )
 
 // User represents a user belonging to an account, optionally scoped to a namespace and provider.
+// The relationship to account is managed through the account_users bridge table.
 type User struct {
 	ID                string    `json:"id" db:"id"`
-	AccountID         string    `json:"account_id" db:"account_id"`
 	Namespace         *string   `json:"namespace,omitempty" db:"namespace"`
 	UserType          UserType  `json:"user_type" db:"user_type"`
 	DisplayName       *string   `json:"display_name,omitempty" db:"display_name"`

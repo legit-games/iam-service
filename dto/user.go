@@ -21,10 +21,11 @@ type UserResponse struct {
 }
 
 // FromUser converts a models.User to UserResponse.
-func FromUser(u *models.User) UserResponse {
+// accountID is passed separately since the relationship is now through account_users bridge table.
+func FromUser(u *models.User, accountID string) UserResponse {
 	return UserResponse{
 		ID:                u.ID,
-		AccountID:         u.AccountID,
+		AccountID:         accountID,
 		Namespace:         u.Namespace,
 		UserType:          u.UserType,
 		DisplayName:       u.DisplayName,
@@ -37,10 +38,11 @@ func FromUser(u *models.User) UserResponse {
 }
 
 // FromUsers converts a slice of models.User to a slice of UserResponse.
-func FromUsers(users []*models.User) []UserResponse {
+// accountID is passed separately since the relationship is now through account_users bridge table.
+func FromUsers(users []*models.User, accountID string) []UserResponse {
 	responses := make([]UserResponse, len(users))
 	for i, u := range users {
-		responses[i] = FromUser(u)
+		responses[i] = FromUser(u, accountID)
 	}
 	return responses
 }
