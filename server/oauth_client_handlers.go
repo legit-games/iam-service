@@ -100,7 +100,7 @@ func (s *Server) HandleListClientsGin(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
-	c.JSON(http.StatusOK, list)
+	c.JSON(http.StatusOK, dto.FromClients(list))
 }
 
 // HandleDeleteClientGin deletes a client by id.
@@ -133,7 +133,7 @@ func (s *Server) HandleListClientsByNamespaceGin(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
-	c.JSON(http.StatusOK, list)
+	c.JSON(http.StatusOK, dto.FromClients(list))
 }
 
 // HandleUpsertClientByNamespaceGin creates or updates a client within a specific namespace.
