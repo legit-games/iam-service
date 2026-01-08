@@ -43,7 +43,10 @@ func NewGinEngineWithScopeAuth(s *Server) *gin.Engine {
 	// === SCOPE-PROTECTED IAM API ENDPOINTS ===
 
 	// Namespace Management
+	r.GET("/iam/v1/admin/namespaces", s.RequireAnyScope(ScopeNamespaceRead, ScopeAdmin), s.handleListNamespaces)
 	r.POST("/iam/v1/admin/namespaces", s.RequireAnyScope(ScopeNamespaceWrite, ScopeAdmin), s.handleCreateNamespace)
+	r.GET("/iam/v1/admin/namespaces/:ns", s.RequireAnyScope(ScopeNamespaceRead, ScopeAdmin), s.handleGetNamespace)
+	r.PUT("/iam/v1/admin/namespaces/:ns", s.RequireAnyScope(ScopeNamespaceWrite, ScopeAdmin), s.handleUpdateNamespace)
 
 	// Account Management
 	r.POST("/iam/v1/accounts/head", s.RequireAnyScope(ScopeAccountWrite, ScopeAdmin), s.handleCreateHeadAccount)

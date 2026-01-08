@@ -1,13 +1,11 @@
 import { Card, Row, Col, Statistic, Button, Space } from 'antd';
 import {
-  AppstoreOutlined,
   KeyOutlined,
   UserOutlined,
   SafetyOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { useNamespaces } from '../hooks/useNamespaces';
 import { useClients } from '../hooks/useClients';
 import { useNamespaceContext } from '../hooks/useNamespaceContext';
 import { useRoles } from '../hooks/useRoles';
@@ -16,7 +14,6 @@ import { useNamespaceBans } from '../hooks/useBans';
 export default function Dashboard() {
   const navigate = useNavigate();
   const { currentNamespace } = useNamespaceContext();
-  const { data: namespaces = [] } = useNamespaces();
   const { data: clients = [] } = useClients(currentNamespace || undefined);
   const { data: roles = [] } = useRoles(currentNamespace || '', undefined);
   const { data: bans = [] } = useNamespaceBans(currentNamespace || '', true);
@@ -25,25 +22,12 @@ export default function Dashboard() {
     <div>
       <div className="page-header">
         <h1>Dashboard</h1>
-        <Space>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/namespaces')}>
-            New Namespace
-          </Button>
-          <Button icon={<PlusOutlined />} onClick={() => navigate('/clients')}>
-            New Client
-          </Button>
-        </Space>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/clients')}>
+          New Client
+        </Button>
       </div>
 
       <div className="dashboard-stats">
-        <Card hoverable onClick={() => navigate('/namespaces')}>
-          <Statistic
-            title="Namespaces"
-            value={namespaces.length}
-            prefix={<AppstoreOutlined />}
-          />
-        </Card>
-
         <Card hoverable onClick={() => navigate('/clients')}>
           <Statistic
             title="Clients"

@@ -17,10 +17,12 @@ export default function NamespaceSelector({ style, size = 'middle' }: NamespaceS
       loading={isLoading}
       size={size}
       style={{ width: 200, ...style }}
-      options={namespaces.map((ns) => ({
-        value: ns.name,
-        label: `${ns.name} (${ns.type})`,
-      }))}
+      options={namespaces
+        .filter((ns) => ns.active)
+        .map((ns) => ({
+          value: ns.name,
+          label: `${ns.name} (${ns.type})`,
+        }))}
     />
   );
 }

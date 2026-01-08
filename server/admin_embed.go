@@ -28,9 +28,15 @@ func RegisterAdminRoutes(r *gin.Engine) {
 	r.GET("/admin/*filepath", func(c *gin.Context) {
 		filepath := c.Param("filepath")
 
-		// Normalize the filepath
+		// Normalize the filepath - serve index.html for root path
 		if filepath == "/" || filepath == "" {
-			filepath = "/index.html"
+			indexData, err := fs.ReadFile(distFS, "index.html")
+			if err != nil {
+				c.String(http.StatusNotFound, "index.html not found")
+				return
+			}
+			c.Data(http.StatusOK, "text/html; charset=utf-8", indexData)
+			return
 		}
 
 		// Remove leading slash for fs.Open
@@ -40,12 +46,17 @@ func RegisterAdminRoutes(r *gin.Engine) {
 		f, err := distFS.Open(cleanPath)
 		if err != nil {
 			// SPA fallback: serve index.html for client-side routing
-			c.FileFromFS("/index.html", http.FS(distFS))
+			indexData, err := fs.ReadFile(distFS, "index.html")
+			if err != nil {
+				c.String(http.StatusNotFound, "index.html not found")
+				return
+			}
+			c.Data(http.StatusOK, "text/html; charset=utf-8", indexData)
 			return
 		}
 		f.Close()
 
-		// Serve the file
+		// Serve the file with proper content type
 		c.FileFromFS(filepath, http.FS(distFS))
 	})
 }

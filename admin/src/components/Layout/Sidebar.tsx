@@ -2,7 +2,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Layout, Menu } from 'antd';
 import {
   DashboardOutlined,
-  AppstoreOutlined,
   KeyOutlined,
   UserOutlined,
   SafetyOutlined,
@@ -21,11 +20,6 @@ const menuItems = [
     key: '/',
     icon: <DashboardOutlined />,
     label: 'Dashboard',
-  },
-  {
-    key: '/namespaces',
-    icon: <AppstoreOutlined />,
-    label: 'Namespaces',
   },
   {
     key: '/clients',

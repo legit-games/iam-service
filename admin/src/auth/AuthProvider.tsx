@@ -19,7 +19,8 @@ import {
 import { ADMIN_REQUIRED_SCOPES } from '../constants/scopes';
 
 const CLIENT_ID = import.meta.env.VITE_OAUTH_CLIENT_ID || 'admin-console';
-const REDIRECT_URI = import.meta.env.VITE_OAUTH_REDIRECT_URI || '/admin/callback';
+// Use absolute URL for redirect_uri to pass OAuth server validation
+const REDIRECT_URI = import.meta.env.VITE_OAUTH_REDIRECT_URI || `${window.location.origin}/admin/callback`;
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 // OAuth server URL for browser redirects (not proxied by Vite)
 const OAUTH_SERVER = import.meta.env.VITE_OAUTH_SERVER || API_BASE;

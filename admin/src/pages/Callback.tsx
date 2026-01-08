@@ -43,9 +43,9 @@ export default function Callback() {
         };
         console.log('[Callback] sessionStorage after exchange:', stored);
 
-        // Navigate to home - use full page reload to reinitialize auth
-        console.log('[Callback] Redirecting to dashboard...');
-        window.location.replace('/admin/');
+        // Navigate to namespace selection - use full page reload to reinitialize auth
+        console.log('[Callback] Redirecting to namespace selection...');
+        window.location.replace('/admin/select-namespace');
       } else {
         setError(result.error || 'Failed to exchange code for tokens');
       }

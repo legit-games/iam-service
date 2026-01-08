@@ -62,10 +62,12 @@ export default function Header({ collapsed, onToggle }: HeaderProps) {
           onChange={setCurrentNamespace}
           loading={isLoading}
           style={{ width: 200 }}
-          options={namespaces.map((ns) => ({
-            value: ns.name,
-            label: `${ns.name} (${ns.type})`,
-          }))}
+          options={namespaces
+            .filter((ns) => ns.active)
+            .map((ns) => ({
+              value: ns.name,
+              label: `${ns.name} (${ns.type})`,
+            }))}
         />
 
         <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">

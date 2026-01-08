@@ -12,7 +12,7 @@ INSERT INTO oauth2_clients (id, secret, domain, user_id, public, permissions, sc
 VALUES (
     'admin-console',
     '',
-    'http://localhost:5173',
+    'http://localhost:9096',
     NULL,
     TRUE,
     '["ADMIN:NAMESPACE:*"]'::jsonb,
