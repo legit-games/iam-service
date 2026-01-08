@@ -69,9 +69,10 @@ func TestScopePermissionFullIntegration(t *testing.T) {
 	router := gin.New()
 
 	// Add comprehensive test endpoints that simulate real IAM functionality
+	// TokenMiddleware must run first to parse JWT and set context values
 
 	// Client Management Endpoints
-	router.GET("/test/clients/:id", s.RequireScopeAndPermission(
+	router.GET("/test/clients/:id", s.TokenMiddleware(), s.RequireScopeAndPermission(
 		ScopeRequirement{Required: []string{"client:read", "admin"}},
 		"ADMIN:NAMESPACE:*:CLIENT",
 		permission.READ,
@@ -88,7 +89,7 @@ func TestScopePermissionFullIntegration(t *testing.T) {
 		})
 	})
 
-	router.PUT("/test/clients/:id/scopes", s.RequireScopeAndPermission(
+	router.PUT("/test/clients/:id/scopes", s.TokenMiddleware(), s.RequireScopeAndPermission(
 		ScopeRequirement{Required: []string{"client:admin", "admin"}},
 		"ADMIN:NAMESPACE:*:CLIENT",
 		permission.UPDATE,
@@ -101,7 +102,7 @@ func TestScopePermissionFullIntegration(t *testing.T) {
 	})
 
 	// User Management Endpoints
-	router.GET("/test/users/:id", s.RequireScopeAndPermission(
+	router.GET("/test/users/:id", s.TokenMiddleware(), s.RequireScopeAndPermission(
 		ScopeRequirement{Required: []string{"user:read", "admin"}},
 		"ADMIN:NAMESPACE:*:USER",
 		permission.READ,
@@ -114,7 +115,7 @@ func TestScopePermissionFullIntegration(t *testing.T) {
 	})
 
 	// Role Management Endpoints
-	router.POST("/test/roles", s.RequireScopeAndPermission(
+	router.POST("/test/roles", s.TokenMiddleware(), s.RequireScopeAndPermission(
 		ScopeRequirement{Required: []string{"role:write", "admin"}},
 		"ADMIN:NAMESPACE:*:ROLE",
 		permission.CREATE,
@@ -125,7 +126,7 @@ func TestScopePermissionFullIntegration(t *testing.T) {
 	})
 
 	// Namespace Management Endpoints
-	router.POST("/test/namespaces", s.RequireScopeAndPermission(
+	router.POST("/test/namespaces", s.TokenMiddleware(), s.RequireScopeAndPermission(
 		ScopeRequirement{Required: []string{"namespace:write", "admin"}},
 		"ADMIN:NAMESPACE:*",
 		permission.CREATE,
