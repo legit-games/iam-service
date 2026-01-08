@@ -93,11 +93,11 @@ func NewGinEngine(s *Server) *gin.Engine {
 	adminGroup.POST("/admin/accounts/:id/ban", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.UPDATE), s.HandleBanAccountGin)
 	adminGroup.POST("/admin/accounts/:id/unban", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.UPDATE), s.HandleUnbanAccountGin)
 	adminGroup.GET("/admin/accounts/:id/bans", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.READ), s.HandleListAccountBansGin)
-	// Admin: account permissions
-	adminGroup.GET("/admin/accounts/:id/permissions", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.READ), s.HandleGetAccountPermissionsGin)
-	adminGroup.PUT("/admin/accounts/:id/permissions", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.UPDATE), s.HandleUpdateAccountPermissionsGin)
-	adminGroup.POST("/admin/accounts/:id/permissions", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.UPDATE), s.HandleAddAccountPermissionsGin)
-	adminGroup.DELETE("/admin/accounts/:id/permissions", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.DELETE), s.HandleRemoveAccountPermissionsGin)
+	// Admin: user permissions
+	adminGroup.GET("/admin/users/:id/permissions", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeUserRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.READ), s.HandleGetUserPermissionsGin)
+	adminGroup.PUT("/admin/users/:id/permissions", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeUserAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.UPDATE), s.HandleUpdateUserPermissionsGin)
+	adminGroup.POST("/admin/users/:id/permissions", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeUserAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.UPDATE), s.HandleAddUserPermissionsGin)
+	adminGroup.DELETE("/admin/users/:id/permissions", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeUserAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.DELETE), s.HandleRemoveUserPermissionsGin)
 
 	// Roles management (Scope + Permission)
 	adminGroup.POST("/admin/namespaces/:ns/roles", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeRoleWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:ROLE", permission.CREATE), s.HandleUpsertRoleGin)

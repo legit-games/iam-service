@@ -86,11 +86,11 @@ func (s *Server) handleUnlinkAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"unlinked": true})
 }
 
-// HandleGetAccountPermissionsGin returns the permissions for an account
-func (s *Server) HandleGetAccountPermissionsGin(c *gin.Context) {
-	accountID := strings.TrimSpace(c.Param("id"))
-	if accountID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "account ID is required"})
+// HandleGetUserPermissionsGin returns the permissions for a user
+func (s *Server) HandleGetUserPermissionsGin(c *gin.Context) {
+	userID := strings.TrimSpace(c.Param("id"))
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "user ID is required"})
 		return
 	}
 
@@ -101,9 +101,9 @@ func (s *Server) HandleGetAccountPermissionsGin(c *gin.Context) {
 	}
 
 	var permissionsJSON []byte
-	row := db.WithContext(c.Request.Context()).Raw(`SELECT COALESCE(permissions, '[]'::jsonb) FROM accounts WHERE id = $1`, accountID).Row()
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT COALESCE(permissions, '[]'::jsonb) FROM users WHERE id = $1`, userID).Row()
 	if err := row.Scan(&permissionsJSON); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "error_description": "account not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "error_description": "user not found"})
 		return
 	}
 
@@ -112,14 +112,14 @@ func (s *Server) HandleGetAccountPermissionsGin(c *gin.Context) {
 		permissions = []string{}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"account_id": accountID, "permissions": permissions})
+	c.JSON(http.StatusOK, gin.H{"user_id": userID, "permissions": permissions})
 }
 
-// HandleUpdateAccountPermissionsGin updates the permissions for an account
-func (s *Server) HandleUpdateAccountPermissionsGin(c *gin.Context) {
-	accountID := strings.TrimSpace(c.Param("id"))
-	if accountID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "account ID is required"})
+// HandleUpdateUserPermissionsGin updates the permissions for a user
+func (s *Server) HandleUpdateUserPermissionsGin(c *gin.Context) {
+	userID := strings.TrimSpace(c.Param("id"))
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "user ID is required"})
 		return
 	}
 
@@ -142,9 +142,9 @@ func (s *Server) HandleUpdateAccountPermissionsGin(c *gin.Context) {
 	}
 
 	var exists int
-	row := db.WithContext(c.Request.Context()).Raw(`SELECT 1 FROM accounts WHERE id = $1`, accountID).Row()
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT 1 FROM users WHERE id = $1`, userID).Row()
 	if err := row.Scan(&exists); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "error_description": "account not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "error_description": "user not found"})
 		return
 	}
 
@@ -154,20 +154,20 @@ func (s *Server) HandleUpdateAccountPermissionsGin(c *gin.Context) {
 		return
 	}
 
-	result := db.WithContext(c.Request.Context()).Exec(`UPDATE accounts SET permissions = $1 WHERE id = $2`, permissionsJSON, accountID)
+	result := db.WithContext(c.Request.Context()).Exec(`UPDATE users SET permissions = $1 WHERE id = $2`, permissionsJSON, userID)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": result.Error.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"account_id": accountID, "permissions": req.Permissions})
+	c.JSON(http.StatusOK, gin.H{"user_id": userID, "permissions": req.Permissions})
 }
 
-// HandleAddAccountPermissionsGin adds permissions to an account (without removing existing ones)
-func (s *Server) HandleAddAccountPermissionsGin(c *gin.Context) {
-	accountID := strings.TrimSpace(c.Param("id"))
-	if accountID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "account ID is required"})
+// HandleAddUserPermissionsGin adds permissions to a user (without removing existing ones)
+func (s *Server) HandleAddUserPermissionsGin(c *gin.Context) {
+	userID := strings.TrimSpace(c.Param("id"))
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "user ID is required"})
 		return
 	}
 
@@ -191,9 +191,9 @@ func (s *Server) HandleAddAccountPermissionsGin(c *gin.Context) {
 	}
 
 	var permissionsJSON []byte
-	row := db.WithContext(c.Request.Context()).Raw(`SELECT COALESCE(permissions, '[]'::jsonb) FROM accounts WHERE id = $1`, accountID).Row()
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT COALESCE(permissions, '[]'::jsonb) FROM users WHERE id = $1`, userID).Row()
 	if err := row.Scan(&permissionsJSON); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "error_description": "account not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "error_description": "user not found"})
 		return
 	}
 
@@ -216,20 +216,20 @@ func (s *Server) HandleAddAccountPermissionsGin(c *gin.Context) {
 	}
 
 	newPermsJSON, _ := json.Marshal(newPerms)
-	result := db.WithContext(c.Request.Context()).Exec(`UPDATE accounts SET permissions = $1 WHERE id = $2`, newPermsJSON, accountID)
+	result := db.WithContext(c.Request.Context()).Exec(`UPDATE users SET permissions = $1 WHERE id = $2`, newPermsJSON, userID)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": result.Error.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"account_id": accountID, "permissions": newPerms})
+	c.JSON(http.StatusOK, gin.H{"user_id": userID, "permissions": newPerms})
 }
 
-// HandleRemoveAccountPermissionsGin removes specific permissions from an account
-func (s *Server) HandleRemoveAccountPermissionsGin(c *gin.Context) {
-	accountID := strings.TrimSpace(c.Param("id"))
-	if accountID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "account ID is required"})
+// HandleRemoveUserPermissionsGin removes specific permissions from a user
+func (s *Server) HandleRemoveUserPermissionsGin(c *gin.Context) {
+	userID := strings.TrimSpace(c.Param("id"))
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "user ID is required"})
 		return
 	}
 
@@ -253,9 +253,9 @@ func (s *Server) HandleRemoveAccountPermissionsGin(c *gin.Context) {
 	}
 
 	var permissionsJSON []byte
-	row := db.WithContext(c.Request.Context()).Raw(`SELECT COALESCE(permissions, '[]'::jsonb) FROM accounts WHERE id = $1`, accountID).Row()
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT COALESCE(permissions, '[]'::jsonb) FROM users WHERE id = $1`, userID).Row()
 	if err := row.Scan(&permissionsJSON); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "error_description": "account not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "error_description": "user not found"})
 		return
 	}
 
@@ -277,13 +277,13 @@ func (s *Server) HandleRemoveAccountPermissionsGin(c *gin.Context) {
 	}
 
 	newPermsJSON, _ := json.Marshal(newPerms)
-	result := db.WithContext(c.Request.Context()).Exec(`UPDATE accounts SET permissions = $1 WHERE id = $2`, newPermsJSON, accountID)
+	result := db.WithContext(c.Request.Context()).Exec(`UPDATE users SET permissions = $1 WHERE id = $2`, newPermsJSON, userID)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": result.Error.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"account_id": accountID, "permissions": newPerms})
+	c.JSON(http.StatusOK, gin.H{"user_id": userID, "permissions": newPerms})
 }
 
 func errorResponse(err error) map[string]string { return map[string]string{"error": err.Error()} }
