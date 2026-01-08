@@ -7,7 +7,7 @@ export const ROLES_KEY = ['roles'];
 export function useRoles(namespace: string, roleType?: RoleType) {
   return useQuery({
     queryKey: [...ROLES_KEY, namespace, roleType],
-    queryFn: () => roleApi.list(namespace, { roleType }).then((r) => r.data),
+    queryFn: () => roleApi.list(namespace, { roleType }).then((r) => r.data.roles),
     enabled: !!namespace,
   });
 }

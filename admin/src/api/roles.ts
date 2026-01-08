@@ -8,7 +8,7 @@ export const roleApi = {
 
   // List roles by namespace
   list: (namespace: string, params?: { roleType?: RoleType }) =>
-    apiClient.get<Role[]>(`/iam/v1/admin/namespaces/${namespace}/roles`, { params }),
+    apiClient.get<{ roles: Role[] }>(`/iam/v1/admin/namespaces/${namespace}/roles`, { params }),
 
   // Get role by ID
   get: (namespace: string, id: string) =>

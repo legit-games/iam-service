@@ -95,7 +95,7 @@ export interface Role {
 
 export interface CreateRoleRequest {
   name: string;
-  role_type: RoleType;
+  roleType: RoleType;
   permissions: Record<string, unknown>;
   description?: string;
 }
