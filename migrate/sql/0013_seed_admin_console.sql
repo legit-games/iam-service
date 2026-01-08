@@ -33,10 +33,10 @@ INSERT INTO accounts (id, username, password_hash, account_type)
 VALUES (
     'admin-account-001',
     'admin',
-    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZRGdjGj/n3.rF/YY1c.rPABQkJAi2',
+    '$2a$10$gtoaCs5SDkEbtiefCJKXJOtLVn5WrryMd9bWHyVjUnfuFCqwSbyaS',
     'HEAD'
 )
-ON CONFLICT (username) DO NOTHING;
+ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash;
 
 -- Create admin user (HEAD type, no namespace for head users)
 INSERT INTO users (id, account_id, namespace, user_type)
