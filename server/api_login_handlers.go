@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -20,8 +21,9 @@ func (s *Server) HandleAPILogin(w http.ResponseWriter, r *http.Request) error {
 	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
 
 	var payload struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
+		Username  string `json:"username"`
+		Password  string `json:"password"`
+		Namespace string `json:"namespace"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -30,11 +32,11 @@ func (s *Server) HandleAPILogin(w http.ResponseWriter, r *http.Request) error {
 			"error_description": "invalid JSON payload",
 		})
 	}
-	if strings.TrimSpace(payload.Username) == "" || strings.TrimSpace(payload.Password) == "" {
+	if strings.TrimSpace(payload.Username) == "" || strings.TrimSpace(payload.Password) == "" || strings.TrimSpace(payload.Namespace) == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		return json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":             "invalid_request",
-			"error_description": "username and password are required",
+			"error_description": "username, password and namespace are required",
 		})
 	}
 
@@ -72,9 +74,16 @@ func (s *Server) HandleAPILogin(w http.ResponseWriter, r *http.Request) error {
 		})
 	}
 
+	// Set namespace in context for permission resolution
+	ctx := r.Context()
+	ns := strings.ToUpper(strings.TrimSpace(payload.Namespace))
+	ctx = context.WithValue(ctx, "ns", ns)
+
 	clientID, clientSecret, _ := s.ClientInfoHandler(r)
 	tgr := &oauth2.TokenGenerateRequest{ClientID: clientID, ClientSecret: clientSecret, UserID: uid, Request: r}
-	ti, genErr := s.Manager.GenerateAccessToken(r.Context(), oauth2.PasswordCredentials, tgr)
+
+	// Use GetAccessToken to properly set up perm_resolver, roles_resolver, and user_id in context
+	ti, genErr := s.GetAccessToken(ctx, oauth2.PasswordCredentials, tgr)
 	if genErr != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return json.NewEncoder(w).Encode(map[string]interface{}{
@@ -88,15 +97,16 @@ func (s *Server) HandleAPILogin(w http.ResponseWriter, r *http.Request) error {
 // HandleAPILoginGin authenticates a user using Gin and issues tokens.
 func (s *Server) HandleAPILoginGin(c *gin.Context) {
 	var payload struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
+		Username  string `json:"username"`
+		Password  string `json:"password"`
+		Namespace string `json:"namespace"`
 	}
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "invalid JSON payload"})
 		return
 	}
-	if strings.TrimSpace(payload.Username) == "" || strings.TrimSpace(payload.Password) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "username and password are required"})
+	if strings.TrimSpace(payload.Username) == "" || strings.TrimSpace(payload.Password) == "" || strings.TrimSpace(payload.Namespace) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "username, password and namespace are required"})
 		return
 	}
 	db, err := s.GetIAMReadDB()
@@ -118,9 +128,17 @@ func (s *Server) HandleAPILoginGin(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_grant", "error_description": "invalid username or password"})
 		return
 	}
+
+	// Set namespace in context for permission resolution
+	ctx := c.Request.Context()
+	ns := strings.ToUpper(strings.TrimSpace(payload.Namespace))
+	ctx = context.WithValue(ctx, "ns", ns)
+
 	clientID, clientSecret, _ := s.ClientInfoHandler(c.Request)
 	tgr := &oauth2.TokenGenerateRequest{ClientID: clientID, ClientSecret: clientSecret, UserID: uid, Request: c.Request}
-	ti, genErr := s.Manager.GenerateAccessToken(c.Request.Context(), oauth2.PasswordCredentials, tgr)
+
+	// Use GetAccessToken to properly set up perm_resolver, roles_resolver, and user_id in context
+	ti, genErr := s.GetAccessToken(ctx, oauth2.PasswordCredentials, tgr)
 	if genErr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("token generation: %v", genErr)})
 		return

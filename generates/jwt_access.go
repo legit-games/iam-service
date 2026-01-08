@@ -18,8 +18,9 @@ type JWTAccessClaims struct {
 	ClientID    string   `json:"client_id,omitempty"`
 	UserID      string   `json:"user_id,omitempty"`      // Actual user ID from users table
 	Namespace   string   `json:"namespace,omitempty"`    // Client's namespace
-	Permissions []string `json:"permissions,omitempty"`
-	Scope       string   `json:"scope,omitempty"` // Space-separated scopes per RFC 6749
+	Permissions []string `json:"permissions"`            // Always include, even if empty
+	Roles       []string `json:"roles"`                  // Always include, even if empty
+	Scope       string   `json:"scope,omitempty"`        // Space-separated scopes per RFC 6749
 }
 
 // Valid claims verification
@@ -48,19 +49,37 @@ type JWTAccessGenerate struct {
 
 // Token based on the UUID generated token
 func (a *JWTAccessGenerate) Token(ctx context.Context, data *oauth2.GenerateBasic, isGenRefresh bool) (string, string, error) {
+	// Resolve user_id from context (actual user ID from users table)
+	// Use user_id for sub field, fallback to account_id (data.UserID) if not resolved
+	subject := data.UserID // Default to account ID
+	userID := ""
+
+	// First try to get user_id directly from context
+	if uid, ok := ctx.Value("user_id").(string); ok && uid != "" {
+		subject = uid // Use actual user ID for sub
+		userID = uid
+	} else if data.UserID != "" {
+		// If user_id not in context but we have accountID, try to resolve via user_id_resolver
+		// This is needed for Authorization Code flow where accountID is only known at generation time
+		if resolver, ok := ctx.Value("user_id_resolver").(func(context.Context, string) string); ok {
+			if resolvedUID := resolver(ctx, data.UserID); resolvedUID != "" {
+				subject = resolvedUID
+				userID = resolvedUID
+			}
+		}
+	}
+
 	claims := &JWTAccessClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Audience:  jwt.ClaimStrings{data.Client.GetID()},
-			Subject:   data.UserID,
+			Subject:   subject, // user_id if resolved, otherwise account_id
 			ExpiresAt: jwt.NewNumericDate(data.TokenInfo.GetAccessCreateAt().Add(data.TokenInfo.GetAccessExpiresIn())),
 		},
-		ClientID: data.Client.GetID(),
-		Scope:    data.TokenInfo.GetScope(), // Include OAuth scopes in JWT
-	}
-
-	// Set user_id from context (actual user ID from users table)
-	if userID, ok := ctx.Value("user_id").(string); ok && userID != "" {
-		claims.UserID = userID
+		ClientID:    data.Client.GetID(),
+		UserID:      userID,      // Actual user ID from users table (may be empty)
+		Scope:       data.TokenInfo.GetScope(), // Include OAuth scopes in JWT
+		Permissions: []string{},               // Always initialize as empty array
+		Roles:       []string{},               // Always initialize as empty array
 	}
 
 	// Set namespace from client
@@ -68,24 +87,32 @@ func (a *JWTAccessGenerate) Token(ctx context.Context, data *oauth2.GenerateBasi
 		claims.Namespace = nsGetter.GetNamespace()
 	}
 
-	// Collect permissions
+	// Collect permissions and roles
 	// 1) client credentials (no user) -> include client permissions
 	if data.UserID == "" {
 		if permsGetter, ok := any(data.Client).(interface{ GetPermissions() []string }); ok {
 			perms := permsGetter.GetPermissions()
 			if len(perms) > 0 {
-				claims.Permissions = append([]string(nil), perms...)
+				claims.Permissions = append(claims.Permissions, perms...)
 			}
 		}
 	} else {
-		// 2) user token -> use resolver from context with provided namespace
-		resolver, hasResolver := ctx.Value("perm_resolver").(func(context.Context, string, string) []string)
+		// 2) user token -> use resolvers from context with provided namespace
 		ns, hasNs := ctx.Value("ns").(string)
 
-		if hasResolver && hasNs && ns != "" {
-			perms := resolver(ctx, data.UserID, ns)
+		// Get permissions
+		if permResolver, ok := ctx.Value("perm_resolver").(func(context.Context, string, string) []string); ok && hasNs && ns != "" {
+			perms := permResolver(ctx, data.UserID, ns)
 			if len(perms) > 0 {
-				claims.Permissions = append([]string(nil), perms...)
+				claims.Permissions = append(claims.Permissions, perms...)
+			}
+		}
+
+		// Get roles
+		if rolesResolver, ok := ctx.Value("roles_resolver").(func(context.Context, string, string) []string); ok && hasNs && ns != "" {
+			roles := rolesResolver(ctx, data.UserID, ns)
+			if len(roles) > 0 {
+				claims.Roles = append(claims.Roles, roles...)
 			}
 		}
 	}

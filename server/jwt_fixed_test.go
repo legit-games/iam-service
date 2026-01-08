@@ -192,10 +192,15 @@ func TestPasswordGrant_UserRolePermissionsInJWT_Fixed(t *testing.T) {
 	}
 
 	if claims2, ok := token2.Claims.(jwt.MapClaims); ok && token2.Valid {
-		if _, exists := claims2["permissions"]; exists {
-			t.Error("FAIL: Found permissions when none should exist (no namespace)")
+		// Permissions should always be present as an empty array when no namespace
+		if perms, exists := claims2["permissions"]; exists {
+			if permsArray, ok := perms.([]interface{}); ok && len(permsArray) == 0 {
+				t.Log("SUCCESS: permissions is empty array without namespace (correct behavior)")
+			} else {
+				t.Errorf("FAIL: Expected empty permissions array without namespace, got: %v", perms)
+			}
 		} else {
-			t.Log("✅ SUCCESS: No permissions found without namespace (correct behavior)")
+			t.Error("FAIL: permissions field should always be present")
 		}
 	}
 }

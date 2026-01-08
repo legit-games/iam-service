@@ -55,13 +55,24 @@ func TestAPILogin_BadJSON(t *testing.T) {
 
 func TestAPILogin_MissingFields(t *testing.T) {
 	engine := newTestEngine(t)
-	body := []byte(`{"username":"","password":""}`)
+	// Missing namespace
+	body := []byte(`{"username":"test","password":"test"}`)
 	req := httptest.NewRequest(http.MethodPost, "/iam/v1/public/login", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+		t.Fatalf("expected 400 for missing namespace, got %d", w.Code)
+	}
+
+	// Missing all fields
+	body2 := []byte(`{"username":"","password":"","namespace":""}`)
+	req2 := httptest.NewRequest(http.MethodPost, "/iam/v1/public/login", bytes.NewBuffer(body2))
+	req2.Header.Set("Content-Type", "application/json")
+	w2 := httptest.NewRecorder()
+	engine.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty fields, got %d", w2.Code)
 	}
 }
 
@@ -81,7 +92,7 @@ func TestAPILogin_Success(t *testing.T) {
 		t.Fatalf("insert user: %v", err)
 	}
 
-	body := []byte(fmt.Sprintf(`{"username":"%s","password":"p@ssw0rd"}`, uname))
+	body := []byte(fmt.Sprintf(`{"username":"%s","password":"p@ssw0rd","namespace":"TESTNS"}`, uname))
 	req := httptest.NewRequest(http.MethodPost, "/iam/v1/public/login", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

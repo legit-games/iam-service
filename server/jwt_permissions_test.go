@@ -44,10 +44,15 @@ func TestJWTPermissionsBasic(t *testing.T) {
 	}
 
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		// Permissions should always be present as an empty array
 		if perms, exists := claims["permissions"]; exists {
-			t.Errorf("Expected no permissions without context, but got: %v", perms)
+			if permsArray, ok := perms.([]interface{}); ok && len(permsArray) == 0 {
+				t.Log("Test 1 PASSED: Empty permissions array without context")
+			} else {
+				t.Errorf("Expected empty permissions array without context, got: %v", perms)
+			}
 		} else {
-			t.Log("✅ Test 1 PASSED: No permissions without context")
+			t.Error("permissions field should always be present")
 		}
 	} else {
 		t.Error("Invalid JWT token without context")
@@ -71,10 +76,15 @@ func TestJWTPermissionsBasic(t *testing.T) {
 	}
 
 	if claims2, ok := token2.Claims.(jwt.MapClaims); ok && token2.Valid {
+		// Permissions should always be present as an empty array when no namespace
 		if perms, exists := claims2["permissions"]; exists {
-			t.Errorf("Expected no permissions without namespace, but got: %v", perms)
+			if permsArray, ok := perms.([]interface{}); ok && len(permsArray) == 0 {
+				t.Log("Test 2 PASSED: Empty permissions array without namespace")
+			} else {
+				t.Errorf("Expected empty permissions array without namespace, got: %v", perms)
+			}
 		} else {
-			t.Log("✅ Test 2 PASSED: No permissions without namespace")
+			t.Error("permissions field should always be present")
 		}
 	} else {
 		t.Error("Invalid JWT token with resolver but no namespace")
