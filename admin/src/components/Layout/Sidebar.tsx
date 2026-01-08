@@ -27,9 +27,20 @@ const menuItems = [
     label: 'Clients',
   },
   {
-    key: '/users',
+    key: 'users',
     icon: <UserOutlined />,
     label: 'Users',
+    children: [
+      {
+        key: '/users',
+        label: 'User List',
+      },
+      {
+        key: '/bans',
+        icon: <StopOutlined />,
+        label: 'Ban Management',
+      },
+    ],
   },
   {
     key: 'roles',
@@ -45,11 +56,6 @@ const menuItems = [
         label: 'User Roles',
       },
     ],
-  },
-  {
-    key: '/bans',
-    icon: <StopOutlined />,
-    label: 'Bans',
   },
   {
     key: 'platforms',
@@ -83,6 +89,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
   const openKeys: string[] = [];
   if (location.pathname.startsWith('/platforms')) openKeys.push('platforms');
   if (location.pathname.startsWith('/roles')) openKeys.push('roles');
+  if (location.pathname.startsWith('/users') || location.pathname.startsWith('/bans')) openKeys.push('users');
 
   return (
     <Sider
