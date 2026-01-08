@@ -5,7 +5,6 @@ import {
   KeyOutlined,
   UserOutlined,
   SafetyOutlined,
-  StopOutlined,
   CloudOutlined,
 } from '@ant-design/icons';
 
@@ -37,7 +36,6 @@ const menuItems = [
       },
       {
         key: '/bans',
-        icon: <StopOutlined />,
         label: 'Ban Management',
       },
     ],
