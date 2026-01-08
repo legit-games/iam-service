@@ -1,6 +1,6 @@
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Descriptions, Button, Tag, Space, Empty, Spin, Alert } from 'antd';
-import { ArrowLeftOutlined, StopOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, StopOutlined, HistoryOutlined } from '@ant-design/icons';
 import { useState } from 'react';
 import BanModal from '../../components/BanModal';
 import { useNamespaceContext } from '../../hooks/useNamespaceContext';
@@ -104,13 +104,21 @@ export default function UserDetail() {
           </Button>
           <h1 style={{ margin: 0 }}>User: {id}</h1>
         </Space>
-        <Button
-          danger
-          icon={<StopOutlined />}
-          onClick={() => setBanModalOpen(true)}
-        >
-          Ban User
-        </Button>
+        <Space>
+          <Button
+            icon={<HistoryOutlined />}
+            onClick={() => navigate(`/users/${id}/bans`)}
+          >
+            Ban History
+          </Button>
+          <Button
+            danger
+            icon={<StopOutlined />}
+            onClick={() => setBanModalOpen(true)}
+          >
+            Ban User
+          </Button>
+        </Space>
       </div>
 
       <Card title="User Information" style={{ marginBottom: 16 }}>
@@ -138,7 +146,16 @@ export default function UserDetail() {
         </Descriptions>
       </Card>
 
-      <Card title="Active Bans" style={{ marginBottom: 16 }} loading={bansLoading}>
+      <Card
+        title="Active Bans"
+        style={{ marginBottom: 16 }}
+        loading={bansLoading}
+        extra={
+          <Button type="link" icon={<HistoryOutlined />} onClick={() => navigate(`/users/${id}/bans`)}>
+            View Full History
+          </Button>
+        }
+      >
         {bans.length > 0 ? (
           bans.map((ban) => (
             <Card.Grid key={ban.id} style={{ width: '50%' }}>

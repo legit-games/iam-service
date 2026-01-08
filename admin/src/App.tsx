@@ -11,6 +11,7 @@ import ClientList from './pages/clients/ClientList';
 import ClientDetail from './pages/clients/ClientDetail';
 import UserList from './pages/users/UserList';
 import UserDetail from './pages/users/UserDetail';
+import UserBanHistory from './pages/users/UserBanHistory';
 import RoleList from './pages/roles/RoleList';
 import BanList from './pages/bans/BanList';
 import PlatformClientList from './pages/platforms/PlatformClientList';
@@ -52,6 +53,7 @@ function App() {
         <Route path="clients/:id" element={<ClientDetail />} />
         <Route path="users" element={<UserList />} />
         <Route path="users/:id" element={<UserDetail />} />
+        <Route path="users/:id/bans" element={<UserBanHistory />} />
         <Route path="roles/clients" element={<RoleList roleType="CLIENT" />} />
         <Route path="roles/users" element={<RoleList roleType="USER" />} />
         <Route path="bans" element={<BanList />} />
