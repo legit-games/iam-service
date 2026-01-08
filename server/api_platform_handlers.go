@@ -13,6 +13,7 @@ import (
 	"github.com/go-oauth2/oauth2/v4/models"
 	"github.com/go-oauth2/oauth2/v4/platforms"
 	"github.com/go-oauth2/oauth2/v4/store"
+	"github.com/go-oauth2/oauth2/v4/dto"
 )
 
 // Platform ID validation regex (alphanumeric, 1-256 chars)
@@ -868,7 +869,7 @@ func (s *Server) HandleGetPlatformClientGin(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, client)
+	c.JSON(http.StatusOK, dto.FromPlatformClient(client))
 }
 
 // HandleCreatePlatformClientGin creates a new platform client configuration.
@@ -883,7 +884,7 @@ func (s *Server) HandleCreatePlatformClientGin(c *gin.Context) {
 		return
 	}
 
-	var req models.PlatformClient
+	var req dto.PlatformClientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":             "invalid_request",
@@ -908,9 +909,10 @@ func (s *Server) HandleCreatePlatformClientGin(c *gin.Context) {
 		return
 	}
 
-	// Set namespace from path
-	req.Namespace = namespace
-	req.PlatformID = strings.ToLower(req.PlatformID)
+	// Convert to model and set namespace from path
+	platformClient := req.ToModel()
+	platformClient.Namespace = namespace
+	platformClient.PlatformID = strings.ToLower(req.PlatformID)
 
 	db, err := s.GetPrimaryDB()
 	if err != nil {
@@ -931,7 +933,7 @@ func (s *Server) HandleCreatePlatformClientGin(c *gin.Context) {
 	platformClientStore := store.NewPlatformClientStore(db)
 
 	// Check if already exists
-	existing, err := platformClientStore.GetByNamespaceAndPlatform(c.Request.Context(), namespace, req.PlatformID)
+	existing, err := platformClientStore.GetByNamespaceAndPlatform(c.Request.Context(), namespace, platformClient.PlatformID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":             "server_error",
@@ -947,7 +949,7 @@ func (s *Server) HandleCreatePlatformClientGin(c *gin.Context) {
 		return
 	}
 
-	if err := platformClientStore.Create(c.Request.Context(), &req); err != nil {
+	if err := platformClientStore.Create(c.Request.Context(), platformClient); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":             "server_error",
 			"error_description": "unable to create platform client: " + err.Error(),
@@ -955,7 +957,7 @@ func (s *Server) HandleCreatePlatformClientGin(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, req)
+	c.JSON(http.StatusCreated, dto.FromPlatformClient(platformClient))
 }
 
 // HandleUpdatePlatformClientGin updates an existing platform client configuration.
@@ -972,7 +974,7 @@ func (s *Server) HandleUpdatePlatformClientGin(c *gin.Context) {
 		return
 	}
 
-	var req models.PlatformClient
+	var req dto.PlatformClientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":             "invalid_request",
@@ -1016,14 +1018,15 @@ func (s *Server) HandleUpdatePlatformClientGin(c *gin.Context) {
 		return
 	}
 
-	// Preserve ID, namespace, and active status from existing record
-	req.ID = existing.ID
-	req.Namespace = namespace
-	req.PlatformID = platformID
-	req.CreatedAt = existing.CreatedAt
-	req.Active = existing.Active // Preserve active status
+	// Convert to model and preserve ID, namespace, and active status from existing record
+	platformClient := req.ToModel()
+	platformClient.ID = existing.ID
+	platformClient.Namespace = namespace
+	platformClient.PlatformID = platformID
+	platformClient.CreatedAt = existing.CreatedAt
+	platformClient.Active = existing.Active // Preserve active status
 
-	if err := platformClientStore.Update(c.Request.Context(), &req); err != nil {
+	if err := platformClientStore.Update(c.Request.Context(), platformClient); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":             "server_error",
 			"error_description": "unable to update platform client",
@@ -1031,7 +1034,7 @@ func (s *Server) HandleUpdatePlatformClientGin(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, req)
+	c.JSON(http.StatusOK, dto.FromPlatformClient(platformClient))
 }
 
 // HandleDeletePlatformClientGin deletes a platform client configuration.

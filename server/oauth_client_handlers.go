@@ -7,28 +7,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-oauth2/oauth2/v4/errors"
 	"github.com/go-oauth2/oauth2/v4/models"
+	"github.com/go-oauth2/oauth2/v4/dto"
 )
-
-// Client registration/upsert and permission management (admin endpoints)
-
-type UpsertClientRequest struct {
-	ID          string   `json:"id" binding:"required"`
-	Secret      string   `json:"secret" binding:"required"`
-	Domain      string   `json:"domain" binding:"required"`
-	UserID      string   `json:"user_id"`
-	Public      bool     `json:"public"`
-	Namespace   string   `json:"namespace"`
-	Permissions []string `json:"permissions"`
-	Scopes      []string `json:"scopes"`
-}
-
-type UpdateClientPermissionsRequest struct {
-	Permissions []string `json:"permissions" binding:"required"`
-}
-
-type UpdateClientScopesRequest struct {
-	Scopes []string `json:"scopes" binding:"required"`
-}
 
 // HandleUpsertClientGin creates or updates a client record.
 func (s *Server) HandleUpsertClientGin(c *gin.Context) {
@@ -36,7 +16,7 @@ func (s *Server) HandleUpsertClientGin(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, errorResponse(err))
 		return
 	}
-	var req UpsertClientRequest
+	var req dto.UpsertClientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse(err))
 		return
@@ -56,7 +36,7 @@ func (s *Server) HandleUpdateClientPermissionsGin(c *gin.Context) {
 		return
 	}
 	clientID := c.Param("id")
-	var req UpdateClientPermissionsRequest
+	var req dto.UpdateClientPermissionsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse(err))
 		return
@@ -76,7 +56,7 @@ func (s *Server) HandleUpdateClientScopesGin(c *gin.Context) {
 		return
 	}
 	clientID := c.Param("id")
-	var req UpdateClientScopesRequest
+	var req dto.UpdateClientScopesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse(err))
 		return
@@ -103,15 +83,7 @@ func (s *Server) HandleGetClientGin(c *gin.Context) {
 		return
 	}
 	r := ci.(*models.Client)
-	c.JSON(http.StatusOK, gin.H{
-		"id":          r.ID,
-		"domain":      r.Domain,
-		"user_id":     r.UserID,
-		"public":      r.Public,
-		"namespace":   r.Namespace,
-		"permissions": r.Permissions,
-		"scopes":      r.Scopes,
-	})
+	c.JSON(http.StatusOK, dto.FromClient(r))
 }
 
 // HandleListClientsGin returns paged clients with offset/limit.
@@ -171,7 +143,7 @@ func (s *Server) HandleUpsertClientByNamespaceGin(c *gin.Context) {
 		return
 	}
 	ns := c.Param("ns")
-	var req UpsertClientRequest
+	var req dto.UpsertClientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse(err))
 		return
@@ -194,7 +166,7 @@ func (s *Server) HandleUpdateClientPermissionsByNamespaceGin(c *gin.Context) {
 	}
 	ns := c.Param("ns")
 	clientID := c.Param("id")
-	var req UpdateClientPermissionsRequest
+	var req dto.UpdateClientPermissionsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, errorResponse(err))
 		return
