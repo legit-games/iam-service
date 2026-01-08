@@ -46,11 +46,17 @@ func (s *Server) TokenMiddleware() gin.HandlerFunc {
 			claims, ok := token.Claims.(jwt.MapClaims)
 			if ok {
 				// Set values in context from JWT claims
-				if sub, exists := claims["sub"]; exists {
+				// Prefer user_id claim (actual user ID from users table), fallback to sub (account_id)
+				if userID, exists := claims["user_id"]; exists {
+					c.Set("user_id", userID)
+				} else if sub, exists := claims["sub"]; exists {
 					c.Set("user_id", sub)
 				}
 				if clientID, exists := claims["client_id"]; exists {
 					c.Set("client_id", clientID)
+				}
+				if namespace, exists := claims["namespace"]; exists {
+					c.Set("namespace", namespace)
 				}
 				if scope, exists := claims["scope"]; exists {
 					if scopeStr, ok := scope.(string); ok {
@@ -132,4 +138,15 @@ func GetScopesFromContext(c *gin.Context) []string {
 		}
 	}
 	return []string{}
+}
+
+// GetNamespaceFromContext retrieves the namespace from the gin context.
+// Returns empty string if not found.
+func GetNamespaceFromContext(c *gin.Context) string {
+	if namespace, exists := c.Get("namespace"); exists {
+		if ns, ok := namespace.(string); ok {
+			return ns
+		}
+	}
+	return ""
 }

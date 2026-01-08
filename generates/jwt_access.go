@@ -16,6 +16,8 @@ import (
 type JWTAccessClaims struct {
 	jwt.RegisteredClaims
 	ClientID    string   `json:"client_id,omitempty"`
+	UserID      string   `json:"user_id,omitempty"`      // Actual user ID from users table
+	Namespace   string   `json:"namespace,omitempty"`    // Client's namespace
 	Permissions []string `json:"permissions,omitempty"`
 	Scope       string   `json:"scope,omitempty"` // Space-separated scopes per RFC 6749
 }
@@ -54,6 +56,16 @@ func (a *JWTAccessGenerate) Token(ctx context.Context, data *oauth2.GenerateBasi
 		},
 		ClientID: data.Client.GetID(),
 		Scope:    data.TokenInfo.GetScope(), // Include OAuth scopes in JWT
+	}
+
+	// Set user_id from context (actual user ID from users table)
+	if userID, ok := ctx.Value("user_id").(string); ok && userID != "" {
+		claims.UserID = userID
+	}
+
+	// Set namespace from client
+	if nsGetter, ok := any(data.Client).(interface{ GetNamespace() string }); ok {
+		claims.Namespace = nsGetter.GetNamespace()
 	}
 
 	// Collect permissions

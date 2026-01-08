@@ -498,6 +498,18 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 	ctx = context.WithValue(ctx, "ns", ns)
 	ctx = context.WithValue(ctx, "perm_resolver", permResolver)
 
+	// Resolve actual user_id from users table using account_id (tgr.UserID is account_id)
+	if tgr.UserID != "" && s.userStore != nil {
+		db, err := s.GetIAMReadDB()
+		if err == nil {
+			var userID string
+			row := db.WithContext(ctx).Raw(`SELECT id FROM users WHERE account_id = ? LIMIT 1`, tgr.UserID).Row()
+			if row.Scan(&userID) == nil && userID != "" {
+				ctx = context.WithValue(ctx, "user_id", userID)
+			}
+		}
+	}
+
 	switch gt {
 	case oauth2.AuthorizationCode:
 		// On code exchange, need to resolve userID via stored code; manager will produce ti; we can check after generate and before return.
