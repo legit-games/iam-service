@@ -52,7 +52,8 @@ function App() {
         <Route path="clients/:id" element={<ClientDetail />} />
         <Route path="users" element={<UserList />} />
         <Route path="users/:id" element={<UserDetail />} />
-        <Route path="roles" element={<RoleList />} />
+        <Route path="roles/clients" element={<RoleList roleType="CLIENT" />} />
+        <Route path="roles/users" element={<RoleList roleType="USER" />} />
         <Route path="bans" element={<BanList />} />
         <Route path="platforms/clients" element={<PlatformClientList />} />
         <Route path="platforms/users" element={<PlatformUserList />} />

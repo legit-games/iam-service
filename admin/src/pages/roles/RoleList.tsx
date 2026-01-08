@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Table, Button, Modal, Form, Input, Select, Tag, message, Space, Popconfirm } from 'antd';
+import { Table, Button, Modal, Form, Input, message, Space, Popconfirm } from 'antd';
 import { PlusOutlined, ReloadOutlined, DeleteOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useRoles, useCreateRole, useDeleteRole } from '../../hooks/useRoles';
@@ -7,13 +7,16 @@ import { useNamespaceContext } from '../../hooks/useNamespaceContext';
 import type { Role, RoleType } from '../../api/types';
 import dayjs from 'dayjs';
 
-export default function RoleList() {
+interface RoleListProps {
+  roleType: RoleType;
+}
+
+export default function RoleList({ roleType }: RoleListProps) {
   const [form] = Form.useForm();
   const [modalOpen, setModalOpen] = useState(false);
-  const [filterType, setFilterType] = useState<RoleType | undefined>();
 
   const { currentNamespace } = useNamespaceContext();
-  const { data: roles = [], isLoading, refetch } = useRoles(currentNamespace || '', filterType);
+  const { data: roles = [], isLoading, refetch } = useRoles(currentNamespace || '', roleType);
   const createMutation = useCreateRole(currentNamespace || '');
   const deleteMutation = useDeleteRole(currentNamespace || '');
 
@@ -25,14 +28,6 @@ export default function RoleList() {
       sorter: (a, b) => a.name.localeCompare(b.name),
     },
     {
-      title: 'Type',
-      dataIndex: 'role_type',
-      key: 'role_type',
-      render: (type: RoleType) => (
-        <Tag color={type === 'USER' ? 'blue' : 'purple'}>{type}</Tag>
-      ),
-    },
-    {
       title: 'Description',
       dataIndex: 'description',
       key: 'description',
@@ -42,12 +37,15 @@ export default function RoleList() {
       title: 'Permissions',
       dataIndex: 'permissions',
       key: 'permissions',
-      render: (permissions: Record<string, unknown>) => (
-        <code style={{ fontSize: 12 }}>
-          {JSON.stringify(permissions).slice(0, 50)}
-          {JSON.stringify(permissions).length > 50 ? '...' : ''}
-        </code>
-      ),
+      render: (permissions: Record<string, unknown> | undefined) => {
+        const str = JSON.stringify(permissions ?? {});
+        return (
+          <code style={{ fontSize: 12 }}>
+            {str.slice(0, 50)}
+            {str.length > 50 ? '...' : ''}
+          </code>
+        );
+      },
     },
     {
       title: 'Created',
@@ -95,7 +93,7 @@ export default function RoleList() {
 
       await createMutation.mutateAsync({
         name: values.name,
-        role_type: values.role_type,
+        roleType: roleType,
         description: values.description,
         permissions,
       });
@@ -120,21 +118,13 @@ export default function RoleList() {
     }
   };
 
+  const pageTitle = roleType === 'CLIENT' ? 'Client Roles' : 'User Roles';
+
   return (
     <div>
       <div className="page-header">
-        <h1>Roles</h1>
+        <h1>{pageTitle}</h1>
         <Space>
-          <Select
-            placeholder="Filter by type"
-            allowClear
-            style={{ width: 150 }}
-            value={filterType}
-            onChange={setFilterType}
-          >
-            <Select.Option value="USER">User Roles</Select.Option>
-            <Select.Option value="CLIENT">Client Roles</Select.Option>
-          </Select>
           <Button icon={<ReloadOutlined />} onClick={() => refetch()}>
             Refresh
           </Button>
@@ -164,27 +154,20 @@ export default function RoleList() {
       />
 
       <Modal
-        title="Create Role"
+        title={`Create ${roleType === 'CLIENT' ? 'Client' : 'User'} Role`}
         open={modalOpen}
         onOk={handleCreate}
         onCancel={() => setModalOpen(false)}
         confirmLoading={createMutation.isPending}
         width={600}
       >
-        <Form form={form} layout="vertical" initialValues={{ role_type: 'USER' }}>
+        <Form form={form} layout="vertical">
           <Form.Item
             name="name"
             label="Role Name"
             rules={[{ required: true, message: 'Please enter a role name' }]}
           >
             <Input placeholder="admin-role" />
-          </Form.Item>
-
-          <Form.Item name="role_type" label="Role Type" rules={[{ required: true }]}>
-            <Select>
-              <Select.Option value="USER">User Role</Select.Option>
-              <Select.Option value="CLIENT">Client Role</Select.Option>
-            </Select>
           </Form.Item>
 
           <Form.Item name="description" label="Description">

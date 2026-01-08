@@ -14,13 +14,13 @@ const (
 // Role represents a namespace-scoped role with JSON permissions
 // Permissions is stored as raw JSON bytes to avoid ORM map parsing issues.
 type Role struct {
-	ID          string          `gorm:"column:id;primaryKey"`
-	Namespace   string          `gorm:"column:namespace;index"`
-	Name        string          `gorm:"column:name"`
-	RoleType    string          `gorm:"column:role_type"`
-	Permissions json.RawMessage `gorm:"column:permissions"`
-	Description string          `gorm:"column:description"`
-	CreatedAt   time.Time       `gorm:"column:created_at"`
+	ID          string          `gorm:"column:id;primaryKey" json:"id"`
+	Namespace   string          `gorm:"column:namespace;index" json:"namespace"`
+	Name        string          `gorm:"column:name" json:"name"`
+	RoleType    string          `gorm:"column:role_type" json:"role_type"`
+	Permissions json.RawMessage `gorm:"column:permissions" json:"permissions"`
+	Description string          `gorm:"column:description" json:"description"`
+	CreatedAt   time.Time       `gorm:"column:created_at" json:"created_at"`
 }
 
 func (Role) TableName() string { return "roles" }
