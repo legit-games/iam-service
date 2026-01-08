@@ -41,16 +41,16 @@ func (s *Snowflake) Next() int64 {
 
 // Client client model
 type Client struct {
-	ID        string
-	Secret    string
-	Domain    string
-	Public    bool
-	UserID    string
-	Namespace string
+	ID        string   `json:"id"`
+	Secret    string   `json:"secret,omitempty"`
+	Domain    string   `json:"domain"`
+	Public    bool     `json:"public"`
+	UserID    string   `json:"user_id,omitempty"`
+	Namespace string   `json:"namespace"`
 	// Permissions assigned to this OAuth client (applied to client_credentials tokens)
-	Permissions []string
+	Permissions []string `json:"permissions"`
 	// Scopes that this client is allowed to request
-	Scopes []string
+	Scopes []string `json:"scopes"`
 }
 
 // GetID client id
