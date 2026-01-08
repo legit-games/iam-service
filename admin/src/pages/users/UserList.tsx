@@ -1,20 +1,25 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Button, Input, Tag, Space, Card } from 'antd';
+import { Table, Button, Input, Tag, Space, Card, Select, message, DatePicker } from 'antd';
 import { SearchOutlined, ReloadOutlined, EyeOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import type { Dayjs } from 'dayjs';
 import { useNamespaceContext } from '../../hooks/useNamespaceContext';
+import { userApi, SearchType } from '../../api/users';
 import type { User } from '../../api/types';
 
-// Note: This is a placeholder as the actual user list endpoint may need to be implemented
-// For now, showing the structure
+const { RangePicker } = DatePicker;
+
+type ExtendedSearchType = SearchType | 'created_at';
 
 export default function UserList() {
   const navigate = useNavigate();
   const { currentNamespace } = useNamespaceContext();
   const [searchId, setSearchId] = useState('');
-  const [users] = useState<User[]>([]);
-  const [isLoading] = useState(false);
+  const [searchType, setSearchType] = useState<ExtendedSearchType>('user_id');
+  const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
   const columns: ColumnsType<User> = [
     {
@@ -58,6 +63,12 @@ export default function UserList() {
       ),
     },
     {
+      title: 'Created At',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (date: string) => date ? new Date(date).toLocaleString() : '-',
+    },
+    {
       title: 'Actions',
       key: 'actions',
       render: (_, record) => (
@@ -72,33 +83,112 @@ export default function UserList() {
     },
   ];
 
-  const handleSearch = () => {
-    if (searchId) {
-      navigate(`/users/${searchId}`);
+  const handleSearch = async () => {
+    if (!currentNamespace) {
+      message.warning('Please select a namespace first');
+      return;
     }
+
+    // Check if search criteria is provided based on search type
+    if (searchType === 'created_at') {
+      if (!dateRange || !dateRange[0] || !dateRange[1]) {
+        message.warning('Please select a date range');
+        return;
+      }
+    } else {
+      if (!searchId) {
+        message.warning('Please enter a search value');
+        return;
+      }
+    }
+
+    setIsLoading(true);
+    try {
+      const params: {
+        search_type?: SearchType;
+        q?: string;
+        created_from?: string;
+        created_to?: string;
+      } = {};
+
+      if (searchType === 'created_at') {
+        if (dateRange && dateRange[0] && dateRange[1]) {
+          params.created_from = dateRange[0].startOf('day').toISOString();
+          params.created_to = dateRange[1].endOf('day').toISOString();
+        }
+      } else {
+        params.search_type = searchType;
+        params.q = searchId;
+      }
+
+      const response = await userApi.listUsers(currentNamespace, params);
+      if (response.data.users && response.data.users.length > 0) {
+        setUsers(response.data.users);
+      } else {
+        setUsers([]);
+        message.info('No users found');
+      }
+    } catch (error) {
+      setUsers([]);
+      message.error('Failed to search users');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleClear = () => {
+    setSearchId('');
+    setDateRange(null);
+    setUsers([]);
   };
 
   return (
     <div>
       <div className="page-header">
         <h1>Users</h1>
-        <Button icon={<ReloadOutlined />}>Refresh</Button>
+        <Button icon={<ReloadOutlined />} onClick={handleClear}>Clear</Button>
       </div>
 
       <Card style={{ marginBottom: 16 }}>
-        <Space.Compact style={{ width: '100%', maxWidth: 500 }}>
-          <Input
-            placeholder="Enter User ID or Account ID to search..."
-            value={searchId}
-            onChange={(e) => setSearchId(e.target.value)}
-            onPressEnter={handleSearch}
+        <Space.Compact style={{ width: '100%', maxWidth: 700 }}>
+          <Select
+            value={searchType}
+            onChange={(value) => setSearchType(value)}
+            style={{ width: 140 }}
+            options={[
+              { value: 'user_id', label: 'User ID' },
+              { value: 'account_id', label: 'Account ID' },
+              { value: 'username', label: 'Username' },
+              { value: 'created_at', label: 'Created Date' },
+            ]}
           />
-          <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
+          {searchType === 'created_at' ? (
+            <RangePicker
+              value={dateRange}
+              onChange={(dates) => setDateRange(dates)}
+              style={{ width: 300 }}
+            />
+          ) : (
+            <Input
+              placeholder={
+                searchType === 'user_id'
+                  ? 'Enter User ID to search...'
+                  : searchType === 'account_id'
+                    ? 'Enter Account ID to search...'
+                    : 'Enter Username to search...'
+              }
+              value={searchId}
+              onChange={(e) => setSearchId(e.target.value)}
+              onPressEnter={handleSearch}
+              style={{ flex: 1 }}
+            />
+          )}
+          <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} loading={isLoading}>
             Search
           </Button>
         </Space.Compact>
         <div style={{ marginTop: 8, color: '#666' }}>
-          Search for a specific user by their ID, or browse users in the current namespace.
+          Select search type and enter the value to search.
         </div>
       </Card>
 
@@ -114,7 +204,7 @@ export default function UserList() {
         rowKey="id"
         loading={isLoading}
         pagination={{ pageSize: 10 }}
-        locale={{ emptyText: 'Use the search above to find users by ID' }}
+        locale={{ emptyText: 'Use the search above to find users' }}
       />
     </div>
   );

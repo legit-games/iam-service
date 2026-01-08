@@ -289,6 +289,177 @@ func (s *Server) HandleUnbanUserGin(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "unbanned", "user_id": userID, "namespace": ns, "actor_account_id": actorAccountID})
 }
 
+// ListUsers returns a list of users with optional filters
+// Query parameters:
+// - search_type: "user_id", "account_id", "username" (optional, for keyword search)
+// - q: search keyword (optional)
+// - created_from: start date for created_at filter (RFC3339 format)
+// - created_to: end date for created_at filter (RFC3339 format)
+// - limit: max results (default 50, max 100)
+// - offset: pagination offset (default 0)
+func (s *Server) HandleListUsersGin(c *gin.Context) {
+	if s.userStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "user store not initialized"})
+		return
+	}
+	ns := strings.ToUpper(strings.TrimSpace(c.Param("ns")))
+	searchType := strings.TrimSpace(c.Query("search_type"))
+	searchQuery := strings.TrimSpace(c.Query("q"))
+	createdFrom := strings.TrimSpace(c.Query("created_from"))
+	createdTo := strings.TrimSpace(c.Query("created_to"))
+
+	// Parse limit and offset
+	limit := 50
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := fmt.Sscanf(l, "%d", &limit); err == nil && parsed > 0 {
+			if limit > 100 {
+				limit = 100
+			}
+		}
+	}
+	offset := 0
+	if o := c.Query("offset"); o != "" {
+		fmt.Sscanf(o, "%d", &offset)
+	}
+
+	db := s.userStore.DB
+	var users []map[string]interface{}
+
+	query := `
+		SELECT u.id, u.account_id, u.namespace, u.user_type, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+		FROM users u
+		LEFT JOIN accounts a ON u.account_id = a.id
+		WHERE 1=1`
+	args := []interface{}{}
+
+	// Namespace filter
+	if ns != "" {
+		query += ` AND (u.namespace = ? OR u.namespace IS NULL)`
+		args = append(args, ns)
+	}
+
+	// Keyword search based on search_type
+	if searchQuery != "" {
+		switch searchType {
+		case "user_id":
+			query += ` AND u.id LIKE ?`
+			args = append(args, "%"+searchQuery+"%")
+		case "account_id":
+			query += ` AND u.account_id LIKE ?`
+			args = append(args, "%"+searchQuery+"%")
+		case "username":
+			query += ` AND a.username LIKE ?`
+			args = append(args, "%"+searchQuery+"%")
+		default:
+			// Search all fields
+			query += ` AND (u.id LIKE ? OR u.account_id LIKE ? OR a.username LIKE ?)`
+			args = append(args, "%"+searchQuery+"%", "%"+searchQuery+"%", "%"+searchQuery+"%")
+		}
+	}
+
+	// Date range filter
+	if createdFrom != "" {
+		if t, err := time.Parse(time.RFC3339, createdFrom); err == nil {
+			query += ` AND u.created_at >= ?`
+			args = append(args, t)
+		}
+	}
+	if createdTo != "" {
+		if t, err := time.Parse(time.RFC3339, createdTo); err == nil {
+			query += ` AND u.created_at <= ?`
+			args = append(args, t)
+		}
+	}
+
+	query += ` ORDER BY u.created_at DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+
+	if err := db.WithContext(c.Request.Context()).Raw(query, args...).Scan(&users).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
+		return
+	}
+
+	if users == nil {
+		users = []map[string]interface{}{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"users": users, "count": len(users)})
+}
+
+// GetUser returns user details by ID within a namespace
+// Supports search_type query parameter: "user_id" or "account_id"
+// If no search_type is provided, searches by user ID, account ID, or username
+func (s *Server) HandleGetUserGin(c *gin.Context) {
+	if s.userStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "user store not initialized"})
+		return
+	}
+	ns := strings.ToUpper(strings.TrimSpace(c.Param("ns")))
+	searchID := strings.TrimSpace(c.Param("id"))
+	searchType := strings.TrimSpace(c.Query("search_type"))
+	if searchID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "user ID is required"})
+		return
+	}
+
+	var user map[string]interface{}
+	db := s.userStore.DB
+
+	var query string
+	var args []interface{}
+
+	// Build query based on search type
+	switch searchType {
+	case "user_id":
+		query = `
+			SELECT u.id, u.account_id, u.namespace, u.user_type, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			FROM users u
+			WHERE u.id = ?`
+		args = []interface{}{searchID}
+	case "account_id":
+		query = `
+			SELECT u.id, u.account_id, u.namespace, u.user_type, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			FROM users u
+			WHERE u.account_id = ?`
+		args = []interface{}{searchID}
+	case "username":
+		query = `
+			SELECT u.id, u.account_id, u.namespace, u.user_type, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			FROM users u
+			INNER JOIN accounts a ON u.account_id = a.id
+			WHERE a.username = ?`
+		args = []interface{}{searchID}
+	default:
+		// Default: search by user ID, account ID, or username (join with accounts table)
+		query = `
+			SELECT u.id, u.account_id, u.namespace, u.user_type, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			FROM users u
+			LEFT JOIN accounts a ON u.account_id = a.id
+			WHERE (u.id = ? OR u.account_id = ? OR a.username = ?)`
+		args = []interface{}{searchID, searchID, searchID}
+	}
+
+	// If namespace is provided, filter by it (include HEAD users with NULL namespace)
+	if ns != "" {
+		query += ` AND (u.namespace = ? OR u.namespace IS NULL)`
+		args = append(args, ns)
+	}
+
+	query += ` LIMIT 1`
+
+	if err := db.WithContext(c.Request.Context()).Raw(query, args...).Scan(&user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
+		return
+	}
+
+	if user == nil || len(user) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "error_description": "user not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"user": user})
+}
+
 // List bans for a user in a namespace
 func (s *Server) HandleListUserBansGin(c *gin.Context) {
 	if s.userStore == nil {
