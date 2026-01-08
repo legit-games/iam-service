@@ -46,7 +46,8 @@ func TestScopeAndPermissionIntegrationWithDB(t *testing.T) {
 	router := gin.New()
 
 	// Test endpoint with scope + permission requirements
-	router.GET("/test/client-read", s.RequireScopeAndPermission(
+	// TokenMiddleware must run first to parse JWT and set context values
+	router.GET("/test/client-read", s.TokenMiddleware(), s.RequireScopeAndPermission(
 		ScopeRequirement{Required: []string{"client:read", "admin"}},
 		"ADMIN:NAMESPACE:*:CLIENT",
 		permission.READ,
@@ -58,7 +59,7 @@ func TestScopeAndPermissionIntegrationWithDB(t *testing.T) {
 		})
 	})
 
-	router.PUT("/test/client-admin", s.RequireScopeAndPermission(
+	router.PUT("/test/client-admin", s.TokenMiddleware(), s.RequireScopeAndPermission(
 		ScopeRequirement{Required: []string{"client:admin", "admin"}},
 		"ADMIN:NAMESPACE:*:CLIENT",
 		permission.UPDATE,
@@ -162,6 +163,7 @@ func TestScopeAndPermissionIntegrationWithDB(t *testing.T) {
 		testRouter := gin.New()
 		testRouter.GET("/test/order",
 			trackingMiddleware("start"),
+			s.TokenMiddleware(),
 			s.RequireScopeAndPermission(
 				ScopeRequirement{Required: []string{"required:scope"}},
 				"MOCK:PERMISSION",

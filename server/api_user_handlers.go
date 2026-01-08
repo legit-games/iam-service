@@ -220,13 +220,12 @@ func (s *Server) HandleBanUserGin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "until is required for TIMED ban"})
 		return
 	}
-	// derive actor account from bearer token's userID
-	ti, verr := s.ValidationBearerToken(c.Request)
-	if verr != nil || ti == nil || ti.GetUserID() == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "missing or invalid access token"})
+	// Get caller user ID from context (set by TokenMiddleware)
+	callerUserID := GetUserIDFromContext(c)
+	if callerUserID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "missing user id in token"})
 		return
 	}
-	callerUserID := ti.GetUserID()
 	// lookup account_id by user id
 	db, dberr := s.GetIAMReadDB()
 	if dberr != nil {
@@ -261,13 +260,12 @@ func (s *Server) HandleUnbanUserGin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": err.Error()})
 		return
 	}
-	// derive actor account from bearer token's userID
-	ti, verr := s.ValidationBearerToken(c.Request)
-	if verr != nil || ti == nil || ti.GetUserID() == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "missing or invalid access token"})
+	// Get caller user ID from context (set by TokenMiddleware)
+	callerUserID := GetUserIDFromContext(c)
+	if callerUserID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "missing user id in token"})
 		return
 	}
-	callerUserID := ti.GetUserID()
 	db, dberr := s.GetIAMReadDB()
 	if dberr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": dberr.Error()})
@@ -519,13 +517,12 @@ func (s *Server) HandleBanAccountGin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "until is required for TIMED ban"})
 		return
 	}
-	// derive actor account from bearer token's userID
-	ti, verr := s.ValidationBearerToken(c.Request)
-	if verr != nil || ti == nil || ti.GetUserID() == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "missing or invalid access token"})
+	// Get caller user ID from context (set by TokenMiddleware)
+	callerUserID := GetUserIDFromContext(c)
+	if callerUserID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "missing user id in token"})
 		return
 	}
-	callerUserID := ti.GetUserID()
 	db, dberr := s.GetIAMReadDB()
 	if dberr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": dberr.Error()})
@@ -558,13 +555,12 @@ func (s *Server) HandleUnbanAccountGin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": err.Error()})
 		return
 	}
-	// derive actor account from bearer token's userID
-	ti, verr := s.ValidationBearerToken(c.Request)
-	if verr != nil || ti == nil || ti.GetUserID() == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "missing or invalid access token"})
+	// Get caller user ID from context (set by TokenMiddleware)
+	callerUserID := GetUserIDFromContext(c)
+	if callerUserID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "missing user id in token"})
 		return
 	}
-	callerUserID := ti.GetUserID()
 	db, dberr := s.GetIAMReadDB()
 	if dberr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": dberr.Error()})

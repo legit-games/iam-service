@@ -6,70 +6,27 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-oauth2/oauth2/v4/permission"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 // RequireScopeAndPermission creates a middleware that checks scope FIRST, then permission
 // This provides a layered authorization approach: OAuth 2.0 scopes as the first gate,
 // role-based permissions as the second gate
+// NOTE: This middleware expects TokenMiddleware to have run first
 func (s *Server) RequireScopeAndPermission(scopeRequirement ScopeRequirement, permissionSpec string, permAction permission.Action) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Step 1: Check OAuth 2.0 scopes first
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
+		// Get scopes from context (set by TokenMiddleware)
+		userScopes := GetScopesFromContext(c)
+		if len(userScopes) == 0 {
+			// No scopes found - token middleware should have set them
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error":             "unauthorized",
-				"error_description": "missing authorization header",
+				"error_description": "no scopes found in token",
 			})
 			c.Abort()
 			return
 		}
 
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error":             "unauthorized",
-				"error_description": "invalid authorization header format",
-			})
-			c.Abort()
-			return
-		}
-
-		tokenString := parts[1]
-		jwtKey := []byte("00000000") // Must match the key used in generates.NewJWTAccessGenerate
-
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			return jwtKey, nil
-		})
-
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error":             "unauthorized",
-				"error_description": "invalid access token",
-			})
-			c.Abort()
-			return
-		}
-
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok || !token.Valid {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error":             "unauthorized",
-				"error_description": "invalid token claims",
-			})
-			c.Abort()
-			return
-		}
-
-		// Extract scopes from token
-		var userScopes []string
-		if scopeClaim, exists := claims["scope"]; exists {
-			if scopeStr, ok := scopeClaim.(string); ok {
-				userScopes = strings.Fields(scopeStr)
-			}
-		}
-
-		// Check scope requirements FIRST
+		// Check scope requirements
 		if !hasRequiredScopes(userScopes, scopeRequirement) {
 			c.JSON(http.StatusForbidden, gin.H{
 				"error":             "insufficient_scope",
@@ -80,13 +37,7 @@ func (s *Server) RequireScopeAndPermission(scopeRequirement ScopeRequirement, pe
 			return
 		}
 
-		// Store token info in context for the permission middleware
-		c.Set("token_claims", claims)
-		c.Set("user_scopes", userScopes)
-		c.Set("client_id", claims["client_id"])
-		c.Set("user_id", claims["sub"])
-
-		// Step 2: If user has "admin" scope, bypass permission check (admin has full access)
+		// If user has "admin" scope, bypass permission check (admin has full access)
 		hasAdminScope := false
 		for _, scope := range userScopes {
 			if scope == ScopeAdmin {
@@ -100,8 +51,7 @@ func (s *Server) RequireScopeAndPermission(scopeRequirement ScopeRequirement, pe
 			return
 		}
 
-		// Step 3: If scope check passed but no admin scope, proceed to permission check
-		// Execute the permission middleware
+		// If scope check passed but no admin scope, proceed to permission check
 		permissionMiddleware := RequireAuthorization(permissionSpec, permAction, nil)
 		permissionMiddleware(c)
 
