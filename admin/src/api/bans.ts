@@ -17,11 +17,11 @@ export const banApi = {
     apiClient.post(`/iam/v1/admin/namespaces/${namespace}/users/${userId}/unban`, data),
 
   listUserBans: (namespace: string, userId: string) =>
-    apiClient.get<UserBan[]>(`/iam/v1/admin/namespaces/${namespace}/users/${userId}/bans`),
+    apiClient.get<{ bans: UserBan[] }>(`/iam/v1/admin/namespaces/${namespace}/users/${userId}/bans`),
 
   // List all bans in namespace
   listNamespaceBans: (namespace: string, params?: { active?: boolean }) =>
-    apiClient.get<UserBan[]>(`/iam/v1/admin/namespaces/${namespace}/bans`, { params }),
+    apiClient.get<{ bans: UserBan[] }>(`/iam/v1/admin/namespaces/${namespace}/bans`, { params }),
 
   // Account bans (global)
   banAccount: (accountId: string, data: BanRequest) =>
@@ -31,7 +31,7 @@ export const banApi = {
     apiClient.post(`/iam/v1/admin/accounts/${accountId}/unban`, data),
 
   listAccountBans: (accountId: string) =>
-    apiClient.get<AccountBan[]>(`/iam/v1/admin/accounts/${accountId}/bans`),
+    apiClient.get<{ bans: AccountBan[] }>(`/iam/v1/admin/accounts/${accountId}/bans`),
 
   // Ban history (placeholder - may need actual endpoints)
   getUserBanHistory: (namespace: string, userId: string) =>
