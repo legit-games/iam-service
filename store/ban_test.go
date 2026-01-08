@@ -33,10 +33,16 @@ func setupUserStoreTest(t *testing.T) *UserStore {
 		t.Fatal(err)
 	}
 	// Ensure users exist (one BODY under TESTNS for test user; one HEAD for actor)
-	if err = db.Exec(`INSERT INTO users (id, account_id, namespace, user_type) VALUES (?, ?, 'TESTNS', 'BODY') ON CONFLICT (id) DO NOTHING`, testUserID, testAccountID).Error; err != nil {
+	if err = db.Exec(`INSERT INTO users (id, namespace, user_type) VALUES (?, 'TESTNS', 'BODY') ON CONFLICT (id) DO NOTHING`, testUserID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err = db.Exec(`INSERT INTO users (id, account_id, user_type) VALUES ('actor-user-101', ?, 'HEAD') ON CONFLICT (id) DO NOTHING`, actorAccountID).Error; err != nil {
+	if err = db.Exec(`INSERT INTO account_users (account_id, user_id) VALUES (?, ?) ON CONFLICT (account_id, user_id) DO NOTHING`, testAccountID, testUserID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Exec(`INSERT INTO users (id, user_type) VALUES ('actor-user-101', 'HEAD') ON CONFLICT (id) DO NOTHING`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Exec(`INSERT INTO account_users (account_id, user_id) VALUES (?, 'actor-user-101') ON CONFLICT (account_id, user_id) DO NOTHING`, actorAccountID).Error; err != nil {
 		t.Fatal(err)
 	}
 

@@ -12,7 +12,6 @@ func TestFromUserWithDisplayName(t *testing.T) {
 	displayName := "John Doe"
 	user := &models.User{
 		ID:          "user-123",
-		AccountID:   "account-456",
 		UserType:    models.UserHead,
 		DisplayName: &displayName,
 		CreatedAt:   time.Now(),
@@ -32,7 +31,6 @@ func TestFromUserWithDisplayName(t *testing.T) {
 func TestFromUserWithoutDisplayName(t *testing.T) {
 	user := &models.User{
 		ID:          "user-123",
-		AccountID:   "account-456",
 		UserType:    models.UserHead,
 		DisplayName: nil,
 		CreatedAt:   time.Now(),
@@ -52,7 +50,6 @@ func TestFromUsersWithDisplayName(t *testing.T) {
 	users := []*models.User{
 		{
 			ID:          "user-1",
-			AccountID:   "account-1",
 			UserType:    models.UserHead,
 			DisplayName: &displayName1,
 			CreatedAt:   time.Now(),
@@ -60,7 +57,6 @@ func TestFromUsersWithDisplayName(t *testing.T) {
 		},
 		{
 			ID:          "user-2",
-			AccountID:   "account-2",
 			UserType:    models.UserBody,
 			DisplayName: &displayName2,
 			CreatedAt:   time.Now(),
@@ -86,7 +82,6 @@ func TestUserResponseJSONSerialization(t *testing.T) {
 	displayName := "Test User"
 	response := UserResponse{
 		ID:          "user-123",
-		AccountID:   "account-456",
 		UserType:    models.UserHead,
 		DisplayName: &displayName,
 		CreatedAt:   time.Now(),
@@ -111,7 +106,6 @@ func TestUserResponseJSONSerialization(t *testing.T) {
 func TestUserResponseJSONOmitEmpty(t *testing.T) {
 	response := UserResponse{
 		ID:          "user-123",
-		AccountID:   "account-456",
 		UserType:    models.UserHead,
 		DisplayName: nil,
 		CreatedAt:   time.Now(),
@@ -142,7 +136,6 @@ func TestFromUserPreservesAllFields(t *testing.T) {
 
 	user := &models.User{
 		ID:                "user-full",
-		AccountID:         "account-full",
 		Namespace:         &namespace,
 		UserType:          models.UserBody,
 		DisplayName:       &displayName,
@@ -157,9 +150,6 @@ func TestFromUserPreservesAllFields(t *testing.T) {
 
 	if response.ID != user.ID {
 		t.Errorf("ID mismatch: expected '%s', got '%s'", user.ID, response.ID)
-	}
-	if response.AccountID != user.AccountID {
-		t.Errorf("AccountID mismatch: expected '%s', got '%s'", user.AccountID, response.AccountID)
 	}
 	if *response.Namespace != *user.Namespace {
 		t.Errorf("Namespace mismatch: expected '%s', got '%s'", *user.Namespace, *response.Namespace)

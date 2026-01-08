@@ -9,7 +9,6 @@ import (
 // UserResponse represents a user in API responses.
 type UserResponse struct {
 	ID                string          `json:"id"`
-	AccountID         string          `json:"account_id"`
 	Namespace         *string         `json:"namespace,omitempty"`
 	UserType          models.UserType `json:"user_type"`
 	DisplayName       *string         `json:"display_name,omitempty"`
@@ -24,7 +23,6 @@ type UserResponse struct {
 func FromUser(u *models.User) UserResponse {
 	return UserResponse{
 		ID:                u.ID,
-		AccountID:         u.AccountID,
 		Namespace:         u.Namespace,
 		UserType:          u.UserType,
 		DisplayName:       u.DisplayName,

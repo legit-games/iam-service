@@ -116,8 +116,9 @@ func (s *Server) HandleOIDCUserInfo(w http.ResponseWriter, r *http.Request) erro
 		row := db.WithContext(r.Context()).Raw(`
 			SELECT u.display_name, a.username
 			FROM users u
-			LEFT JOIN accounts a ON u.account_id = a.id
-			WHERE u.account_id = ?`, userID).Row()
+			JOIN account_users au ON au.user_id = u.id
+			LEFT JOIN accounts a ON au.account_id = a.id
+			WHERE au.account_id = ?`, userID).Row()
 		if row.Scan(&displayName, &username) == nil {
 			if displayName != nil && *displayName != "" {
 				claims["display_name"] = *displayName

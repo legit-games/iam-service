@@ -46,10 +46,16 @@ func setupBanTestServer(t *testing.T) (*banTestServer, *gorm.DB) {
 	if err = db.Exec(`INSERT INTO accounts (id, username, password_hash, account_type) VALUES (?, 'actor', 'x', 'HEAD') ON CONFLICT (id) DO NOTHING`, actorAccountID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err = db.Exec(`INSERT INTO users (id, account_id, namespace, user_type) VALUES (?, ?, 'TESTNS', 'BODY') ON CONFLICT (id) DO NOTHING`, testUserID, testAccountID).Error; err != nil {
+	if err = db.Exec(`INSERT INTO users (id, namespace, user_type) VALUES (?, 'TESTNS', 'BODY') ON CONFLICT (id) DO NOTHING`, testUserID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err = db.Exec(`INSERT INTO users (id, account_id, user_type) VALUES (?, ?, 'HEAD') ON CONFLICT (id) DO NOTHING`, actorUserID, actorAccountID).Error; err != nil {
+	if err = db.Exec(`INSERT INTO account_users (account_id, user_id) VALUES (?, ?) ON CONFLICT (account_id, user_id) DO NOTHING`, testAccountID, testUserID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Exec(`INSERT INTO users (id, user_type) VALUES (?, 'HEAD') ON CONFLICT (id) DO NOTHING`, actorUserID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Exec(`INSERT INTO account_users (account_id, user_id) VALUES (?, ?) ON CONFLICT (account_id, user_id) DO NOTHING`, actorAccountID, actorUserID).Error; err != nil {
 		t.Fatal(err)
 	}
 
@@ -87,7 +93,7 @@ func (ts *banTestServer) HandleBanUserGin(c *gin.Context) {
 	db := ts.mockDB
 
 	var actorAccountID string
-	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM users WHERE id=?`, callerUserID).Row()
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM account_users WHERE user_id=?`, callerUserID).Row()
 	if err := row.Scan(&actorAccountID); err != nil || strings.TrimSpace(actorAccountID) == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "unable to resolve actor account"})
 		return
@@ -143,7 +149,7 @@ func (ts *banTestServer) HandleUnbanUserGin(c *gin.Context) {
 	db := ts.mockDB
 
 	var actorAccountID string
-	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM users WHERE id=?`, callerUserID).Row()
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM account_users WHERE user_id=?`, callerUserID).Row()
 	if err := row.Scan(&actorAccountID); err != nil || strings.TrimSpace(actorAccountID) == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
@@ -218,7 +224,7 @@ func (ts *banTestServer) HandleBanAccountGin(c *gin.Context) {
 	db := ts.mockDB
 
 	var actorAccountID string
-	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM users WHERE id=?`, callerUserID).Row()
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM account_users WHERE user_id=?`, callerUserID).Row()
 	if err := row.Scan(&actorAccountID); err != nil || strings.TrimSpace(actorAccountID) == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "unable to resolve actor account"})
 		return

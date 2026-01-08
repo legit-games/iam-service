@@ -38,11 +38,16 @@ func TestUserStore_GetUser_WithDisplayName(t *testing.T) {
 	defer gormDB.Exec(`DELETE FROM accounts WHERE id = ?`, accountID)
 
 	// Insert test user with display_name
-	err = gormDB.Exec(`INSERT INTO users (id, account_id, user_type, display_name) VALUES (?, ?, 'HEAD', ?)`, userID, accountID, displayName).Error
+	err = gormDB.Exec(`INSERT INTO users (id, user_type, display_name) VALUES (?, 'HEAD', ?)`, userID, displayName).Error
 	if err != nil {
 		t.Fatalf("Failed to insert test user: %v", err)
 	}
 	defer gormDB.Exec(`DELETE FROM users WHERE id = ?`, userID)
+	err = gormDB.Exec(`INSERT INTO account_users (account_id, user_id) VALUES (?, ?)`, accountID, userID).Error
+	if err != nil {
+		t.Fatalf("Failed to insert account_users: %v", err)
+	}
+	defer gormDB.Exec(`DELETE FROM account_users WHERE user_id = ?`, userID)
 
 	// Get user and verify display_name
 	user, err := store.GetUser(ctx, accountID, nil)
@@ -83,11 +88,16 @@ func TestUserStore_GetUser_WithoutDisplayName(t *testing.T) {
 	defer gormDB.Exec(`DELETE FROM accounts WHERE id = ?`, accountID)
 
 	// Insert test user without display_name
-	err = gormDB.Exec(`INSERT INTO users (id, account_id, user_type) VALUES (?, ?, 'HEAD')`, userID, accountID).Error
+	err = gormDB.Exec(`INSERT INTO users (id, user_type) VALUES (?, 'HEAD')`, userID).Error
 	if err != nil {
 		t.Fatalf("Failed to insert test user: %v", err)
 	}
 	defer gormDB.Exec(`DELETE FROM users WHERE id = ?`, userID)
+	err = gormDB.Exec(`INSERT INTO account_users (account_id, user_id) VALUES (?, ?)`, accountID, userID).Error
+	if err != nil {
+		t.Fatalf("Failed to insert account_users: %v", err)
+	}
+	defer gormDB.Exec(`DELETE FROM account_users WHERE user_id = ?`, userID)
 
 	// Get user and verify display_name is nil
 	user, err := store.GetUser(ctx, accountID, nil)
@@ -127,11 +137,16 @@ func TestUserStore_GetUser_BodyWithDisplayName(t *testing.T) {
 	defer gormDB.Exec(`DELETE FROM accounts WHERE id = ?`, accountID)
 
 	// Insert test BODY user with display_name
-	err = gormDB.Exec(`INSERT INTO users (id, account_id, namespace, user_type, display_name) VALUES (?, ?, ?, 'BODY', ?)`, userID, accountID, namespace, displayName).Error
+	err = gormDB.Exec(`INSERT INTO users (id, namespace, user_type, display_name) VALUES (?, ?, 'BODY', ?)`, userID, namespace, displayName).Error
 	if err != nil {
 		t.Fatalf("Failed to insert test user: %v", err)
 	}
 	defer gormDB.Exec(`DELETE FROM users WHERE id = ?`, userID)
+	err = gormDB.Exec(`INSERT INTO account_users (account_id, user_id) VALUES (?, ?)`, accountID, userID).Error
+	if err != nil {
+		t.Fatalf("Failed to insert account_users: %v", err)
+	}
+	defer gormDB.Exec(`DELETE FROM account_users WHERE user_id = ?`, userID)
 
 	// Get user by namespace and verify display_name
 	user, err := store.GetUser(ctx, accountID, &namespace)

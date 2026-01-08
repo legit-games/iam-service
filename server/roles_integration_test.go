@@ -50,14 +50,18 @@ func TestPasswordGrant_UserRolePermissionsInJWT_WithDB(t *testing.T) {
 	// Best-effort cleanup first
 	db.Exec(`DELETE FROM user_roles WHERE user_id = ?`, "user-1")
 	db.Exec(`DELETE FROM roles WHERE id = ?`, "role-1")
+	db.Exec(`DELETE FROM account_users WHERE user_id = ?`, "user-1")
 	db.Exec(`DELETE FROM users WHERE id = ?`, "user-1")
 	db.Exec(`DELETE FROM accounts WHERE id = ?`, "acc-1")
 
 	if err := db.Exec(`INSERT INTO accounts(id, username, password_hash) VALUES(?,?,?)`, "acc-1", "user-1", "x").Error; err != nil {
 		t.Fatalf("insert account: %v", err)
 	}
-	if err := db.Exec(`INSERT INTO users(id, account_id, namespace, user_type, orphaned) VALUES(?,?,?,?,FALSE)`, "user-1", "acc-1", ns, "BODY").Error; err != nil {
+	if err := db.Exec(`INSERT INTO users(id, namespace, user_type, orphaned) VALUES(?,?,?,FALSE)`, "user-1", ns, "BODY").Error; err != nil {
 		t.Fatalf("insert user: %v", err)
+	}
+	if err := db.Exec(`INSERT INTO account_users(account_id, user_id) VALUES(?,?)`, "acc-1", "user-1").Error; err != nil {
+		t.Fatalf("insert account_users: %v", err)
 	}
 	permJSON := `{"permissions":["` + perm + `"]}`
 	if err := db.Exec(`INSERT INTO roles(id, namespace, name, role_type, permissions, description) VALUES(?,?,?,?,?::jsonb,?)`, "role-1", ns, "MOD", "USER", permJSON, "test role").Error; err != nil {
@@ -69,6 +73,7 @@ func TestPasswordGrant_UserRolePermissionsInJWT_WithDB(t *testing.T) {
 	defer func() {
 		db.Exec(`DELETE FROM user_roles WHERE user_id = ?`, "user-1")
 		db.Exec(`DELETE FROM roles WHERE id = ?`, "role-1")
+		db.Exec(`DELETE FROM account_users WHERE user_id = ?`, "user-1")
 		db.Exec(`DELETE FROM users WHERE id = ?`, "user-1")
 		db.Exec(`DELETE FROM accounts WHERE id = ?`, "acc-1")
 	}()

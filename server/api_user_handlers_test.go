@@ -79,11 +79,16 @@ func TestListUsersGin_IncludesDisplayName(t *testing.T) {
 	defer db.Exec(`DELETE FROM accounts WHERE id = $1`, accountID)
 
 	// Insert test user with display_name
-	_, err = db.Exec(`INSERT INTO users (id, account_id, namespace, user_type, display_name) VALUES ($1, $2, 'TESTNS', 'HEAD', $3) ON CONFLICT DO NOTHING`, userID, accountID, displayName)
+	_, err = db.Exec(`INSERT INTO users (id, namespace, user_type, display_name) VALUES ($1, 'TESTNS', 'HEAD', $2) ON CONFLICT DO NOTHING`, userID, displayName)
 	if err != nil {
 		t.Fatalf("Failed to insert test user: %v", err)
 	}
 	defer db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+	_, err = db.Exec(`INSERT INTO account_users (account_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, accountID, userID)
+	if err != nil {
+		t.Fatalf("Failed to insert account_users: %v", err)
+	}
+	defer db.Exec(`DELETE FROM account_users WHERE user_id = $1`, userID)
 
 	// Verify the user was created with display_name
 	var storedDisplayName *string
@@ -116,11 +121,16 @@ func TestGetUserGin_IncludesDisplayName(t *testing.T) {
 	defer db.Exec(`DELETE FROM accounts WHERE id = $1`, accountID)
 
 	// Insert test user with display_name
-	_, err = db.Exec(`INSERT INTO users (id, account_id, namespace, user_type, display_name) VALUES ($1, $2, 'TESTNS', 'HEAD', $3) ON CONFLICT DO NOTHING`, userID, accountID, displayName)
+	_, err = db.Exec(`INSERT INTO users (id, namespace, user_type, display_name) VALUES ($1, 'TESTNS', 'HEAD', $2) ON CONFLICT DO NOTHING`, userID, displayName)
 	if err != nil {
 		t.Fatalf("Failed to insert test user: %v", err)
 	}
 	defer db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+	_, err = db.Exec(`INSERT INTO account_users (account_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, accountID, userID)
+	if err != nil {
+		t.Fatalf("Failed to insert account_users: %v", err)
+	}
+	defer db.Exec(`DELETE FROM account_users WHERE user_id = $1`, userID)
 
 	// Verify the user was created with display_name
 	var storedDisplayName *string
@@ -152,11 +162,16 @@ func TestUserDisplayNameNullable(t *testing.T) {
 	defer db.Exec(`DELETE FROM accounts WHERE id = $1`, accountID)
 
 	// Insert test user without display_name
-	_, err = db.Exec(`INSERT INTO users (id, account_id, namespace, user_type) VALUES ($1, $2, 'TESTNS', 'HEAD') ON CONFLICT DO NOTHING`, userID, accountID)
+	_, err = db.Exec(`INSERT INTO users (id, namespace, user_type) VALUES ($1, 'TESTNS', 'HEAD') ON CONFLICT DO NOTHING`, userID)
 	if err != nil {
 		t.Fatalf("Failed to insert test user: %v", err)
 	}
 	defer db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+	_, err = db.Exec(`INSERT INTO account_users (account_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, accountID, userID)
+	if err != nil {
+		t.Fatalf("Failed to insert account_users: %v", err)
+	}
+	defer db.Exec(`DELETE FROM account_users WHERE user_id = $1`, userID)
 
 	// Verify the user was created without display_name (NULL)
 	var storedDisplayName *string
@@ -190,11 +205,16 @@ func TestUserDisplayNameUpdate(t *testing.T) {
 	defer db.Exec(`DELETE FROM accounts WHERE id = $1`, accountID)
 
 	// Insert test user with initial display_name
-	_, err = db.Exec(`INSERT INTO users (id, account_id, namespace, user_type, display_name) VALUES ($1, $2, 'TESTNS', 'HEAD', $3) ON CONFLICT DO NOTHING`, userID, accountID, initialDisplayName)
+	_, err = db.Exec(`INSERT INTO users (id, namespace, user_type, display_name) VALUES ($1, 'TESTNS', 'HEAD', $2) ON CONFLICT DO NOTHING`, userID, initialDisplayName)
 	if err != nil {
 		t.Fatalf("Failed to insert test user: %v", err)
 	}
 	defer db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+	_, err = db.Exec(`INSERT INTO account_users (account_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, accountID, userID)
+	if err != nil {
+		t.Fatalf("Failed to insert account_users: %v", err)
+	}
+	defer db.Exec(`DELETE FROM account_users WHERE user_id = $1`, userID)
 
 	// Update display_name
 	_, err = db.Exec(`UPDATE users SET display_name = $1 WHERE id = $2`, updatedDisplayName, userID)
