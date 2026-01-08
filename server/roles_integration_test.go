@@ -33,7 +33,7 @@ func TestPasswordGrant_UserRolePermissionsInJWT_WithDB(t *testing.T) {
 	s.SetAllowedGrantType(oauth2.PasswordCredentials)
 	s.SetPasswordAuthorizationHandler(func(ctx context.Context, clientID, username, password string) (string, error) {
 		if username == "test" && password == "test" {
-			return "user-1", nil
+			return "acc-1", nil // Return account ID, not user ID
 		}
 		return "", nil
 	})

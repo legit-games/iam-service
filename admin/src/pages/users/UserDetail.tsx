@@ -1,12 +1,13 @@
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Descriptions, Button, Tag, Space, Empty, Spin, Alert } from 'antd';
-import { ArrowLeftOutlined, StopOutlined, HistoryOutlined } from '@ant-design/icons';
-import { useState } from 'react';
+import { ArrowLeftOutlined, StopOutlined, HistoryOutlined, SaveOutlined } from '@ant-design/icons';
+import { useState, useEffect } from 'react';
 import BanModal from '../../components/BanModal';
+import PermissionEditor from '../../components/PermissionEditor';
 import { useNamespaceContext } from '../../hooks/useNamespaceContext';
 import { useBanUser, useUserBans } from '../../hooks/useBans';
 import { useUserPlatforms } from '../../hooks/usePlatforms';
-import { useUser } from '../../hooks/useUsers';
+import { useUser, useUserPermissions, useUpdateUserPermissions } from '../../hooks/useUsers';
 import type { SearchType } from '../../api/users';
 
 export default function UserDetail() {
@@ -17,6 +18,8 @@ export default function UserDetail() {
   const searchType = (searchParams.get('search_type') as SearchType) || 'user_id';
 
   const [banModalOpen, setBanModalOpen] = useState(false);
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [permissionsModified, setPermissionsModified] = useState(false);
 
   // Fetch user details
   const { data: user, isLoading: userLoading, error: userError } = useUser(
@@ -34,6 +37,26 @@ export default function UserDetail() {
     id || ''
   );
   const banMutation = useBanUser(currentNamespace || '');
+  const { data: userPermissions, isLoading: permissionsLoading } = useUserPermissions(id || '');
+  const updatePermissionsMutation = useUpdateUserPermissions(id || '');
+
+  // Sync permissions state when data is loaded
+  useEffect(() => {
+    if (userPermissions) {
+      setPermissions(userPermissions);
+      setPermissionsModified(false);
+    }
+  }, [userPermissions]);
+
+  const handlePermissionsChange = (newPermissions: string[]) => {
+    setPermissions(newPermissions);
+    setPermissionsModified(true);
+  };
+
+  const handleSavePermissions = async () => {
+    await updatePermissionsMutation.mutateAsync(permissions);
+    setPermissionsModified(false);
+  };
 
   const handleBan = async (data: { type: 'PERMANENT' | 'TIMED'; reason: string; until?: string }) => {
     if (!id) return;
@@ -126,9 +149,6 @@ export default function UserDetail() {
           <Descriptions.Item label="User ID">
             <code>{user.id}</code>
           </Descriptions.Item>
-          <Descriptions.Item label="Account ID">
-            <code>{user.account_id}</code>
-          </Descriptions.Item>
           <Descriptions.Item label="Type">
             <Tag color={user.user_type === 'HEAD' ? 'blue' : 'green'}>{user.user_type}</Tag>
           </Descriptions.Item>
@@ -144,6 +164,29 @@ export default function UserDetail() {
             <Tag color={user.orphaned ? 'red' : 'green'}>{user.orphaned ? 'Orphaned' : 'Active'}</Tag>
           </Descriptions.Item>
         </Descriptions>
+      </Card>
+
+      <Card
+        title="Permissions"
+        style={{ marginBottom: 16 }}
+        loading={permissionsLoading}
+        extra={
+          <Button
+            type="primary"
+            icon={<SaveOutlined />}
+            onClick={handleSavePermissions}
+            disabled={!permissionsModified}
+            loading={updatePermissionsMutation.isPending}
+          >
+            Save
+          </Button>
+        }
+      >
+        <PermissionEditor
+          value={permissions}
+          onChange={handlePermissionsChange}
+          disabled={updatePermissionsMutation.isPending}
+        />
       </Card>
 
       <Card

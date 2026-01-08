@@ -351,8 +351,8 @@ func (s *Server) HandleTokenRequest(w http.ResponseWriter, r *http.Request) erro
 	log.Printf("HandleTokenRequest: GetAccessToken OK")
 	// enrich context for JWT generator: namespace and permissions resolver
 	ctx = context.WithValue(ctx, "ns", strings.ToUpper(strings.TrimSpace(FormValue(r, "ns"))))
-	ctx = context.WithValue(ctx, "perm_resolver", func(c context.Context, userID, ns string) []string {
-		// Resolve roles for user in namespace and flatten to permissions (string array)
+	ctx = context.WithValue(ctx, "perm_resolver", func(c context.Context, accountID, ns string) []string {
+		// Resolve permissions for user: direct user permissions + role-based permissions
 		var out []string
 		if s.userStore == nil {
 			return out
@@ -362,34 +362,54 @@ func (s *Server) HandleTokenRequest(w http.ResponseWriter, r *http.Request) erro
 		if err != nil {
 			return out
 		}
-		roleStore := store.NewRoleStore(db)
-		roles, err := roleStore.ListRoleAssignmentsForUser(c, userID, ns)
-		if err != nil {
-			return out
+
+		// 1. Get user_id from account_users bridge table and user's direct permissions
+		var userID string
+		var permissionsJSON []byte
+		row := db.WithContext(c).Raw(`
+			SELECT u.id, COALESCE(u.permissions, '[]'::jsonb)
+			FROM users u
+			JOIN account_users au ON au.user_id = u.id
+			WHERE au.account_id = ?
+			LIMIT 1
+		`, accountID).Row()
+		if row.Scan(&userID, &permissionsJSON) == nil && len(permissionsJSON) > 0 {
+			var userPerms []string
+			if json.Unmarshal(permissionsJSON, &userPerms) == nil {
+				out = append(out, userPerms...)
+			}
 		}
-		for _, r := range roles {
-			if raw := r.Permissions; len(raw) > 0 {
-				var j any
-				if err := json.Unmarshal(raw, &j); err == nil {
-					switch vv := j.(type) {
-					case map[string]any:
-						if arr, ok := vv["permissions"].([]any); ok {
-							for _, v := range arr {
-								if s2, ok2 := v.(string); ok2 {
-									out = append(out, s2)
+
+		// 2. Get role-based permissions
+		if userID != "" {
+			roleStore := store.NewRoleStore(db)
+			roles, err := roleStore.ListRoleAssignmentsForUser(c, userID, ns)
+			if err == nil {
+				for _, r := range roles {
+					if raw := r.Permissions; len(raw) > 0 {
+						var j any
+						if err := json.Unmarshal(raw, &j); err == nil {
+							switch vv := j.(type) {
+							case map[string]any:
+								if arr, ok := vv["permissions"].([]any); ok {
+									for _, v := range arr {
+										if s2, ok2 := v.(string); ok2 {
+											out = append(out, s2)
+										}
+									}
+								} else {
+									for k, v := range vv {
+										if b, okb := v.(bool); okb && b {
+											out = append(out, k)
+										}
+									}
 								}
-							}
-						} else {
-							for k, v := range vv {
-								if b, okb := v.(bool); okb && b {
-									out = append(out, k)
+							case []any:
+								for _, v := range vv {
+									if s2, ok2 := v.(string); ok2 {
+										out = append(out, s2)
+									}
 								}
-							}
-						}
-					case []any:
-						for _, v := range vv {
-							if s2, ok2 := v.(string); ok2 {
-								out = append(out, s2)
 							}
 						}
 					}
@@ -431,12 +451,20 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 	}
 
 	// Ban enforcement: deny access token issuance if user is banned in namespace or account is banned.
-	// Determine namespace from request form (ns) or from issued token info for refresh.
+	// Determine namespace from: 1) request form (ns), 2) context, 3) client's namespace
 	ns := strings.ToUpper(strings.TrimSpace(FormValue(tgr.Request, "ns")))
 	if ns == "" {
 		if v := ctx.Value("ns"); v != nil {
 			if s2, ok := v.(string); ok {
 				ns = strings.ToUpper(strings.TrimSpace(s2))
+			}
+		}
+	}
+	// Fallback to client's namespace if still empty
+	if ns == "" {
+		if cli, err := s.Manager.GetClient(ctx, tgr.ClientID); err == nil && cli != nil {
+			if nsGetter, ok := cli.(interface{ GetNamespace() string }); ok {
+				ns = strings.ToUpper(strings.TrimSpace(nsGetter.GetNamespace()))
 			}
 		}
 	}
@@ -448,7 +476,8 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 		}
 	}
 	if permResolver == nil {
-		permResolver = func(c context.Context, userID, ns string) []string {
+		permResolver = func(c context.Context, accountID, ns string) []string {
+			// Resolve permissions for user: direct user permissions + role-based permissions
 			var out []string
 			if s.userStore == nil {
 				return out
@@ -457,34 +486,54 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 			if err != nil {
 				return out
 			}
-			roleStore := store.NewRoleStore(db)
-			roles, err := roleStore.ListRoleAssignmentsForUser(c, userID, ns)
-			if err != nil {
-				return out
+
+			// 1. Get user_id from account_users bridge table and user's direct permissions
+			var userID string
+			var permissionsJSON []byte
+			row := db.WithContext(c).Raw(`
+				SELECT u.id, COALESCE(u.permissions, '[]'::jsonb)
+				FROM users u
+				JOIN account_users au ON au.user_id = u.id
+				WHERE au.account_id = ?
+				LIMIT 1
+			`, accountID).Row()
+			if row.Scan(&userID, &permissionsJSON) == nil && len(permissionsJSON) > 0 {
+				var userPerms []string
+				if json.Unmarshal(permissionsJSON, &userPerms) == nil {
+					out = append(out, userPerms...)
+				}
 			}
-			for _, r := range roles {
-				if raw := r.Permissions; len(raw) > 0 {
-					var j any
-					if err := json.Unmarshal(raw, &j); err == nil {
-						switch vv := j.(type) {
-						case map[string]any:
-							if arr, ok := vv["permissions"].([]any); ok {
-								for _, v := range arr {
-									if s2, ok2 := v.(string); ok2 {
-										out = append(out, s2)
+
+			// 2. Get role-based permissions
+			if userID != "" {
+				roleStore := store.NewRoleStore(db)
+				roles, err := roleStore.ListRoleAssignmentsForUser(c, userID, ns)
+				if err == nil {
+					for _, r := range roles {
+						if raw := r.Permissions; len(raw) > 0 {
+							var j any
+							if err := json.Unmarshal(raw, &j); err == nil {
+								switch vv := j.(type) {
+								case map[string]any:
+									if arr, ok := vv["permissions"].([]any); ok {
+										for _, v := range arr {
+											if s2, ok2 := v.(string); ok2 {
+												out = append(out, s2)
+											}
+										}
+									} else {
+										for k, v := range vv {
+											if b, okb := v.(bool); okb && b {
+												out = append(out, k)
+											}
+										}
 									}
-								}
-							} else {
-								for k, v := range vv {
-									if b, okb := v.(bool); okb && b {
-										out = append(out, k)
+								case []any:
+									for _, v := range vv {
+										if s2, ok2 := v.(string); ok2 {
+											out = append(out, s2)
+										}
 									}
-								}
-							}
-						case []any:
-							for _, v := range vv {
-								if s2, ok2 := v.(string); ok2 {
-									out = append(out, s2)
 								}
 							}
 						}
@@ -494,19 +543,69 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 			return out
 		}
 	}
+	// Build roles resolver
+	rolesResolver := func(c context.Context, accountID, ns string) []string {
+		var roleNames []string
+		if s.userStore == nil {
+			return roleNames
+		}
+		db, err := s.GetIAMReadDB()
+		if err != nil {
+			return roleNames
+		}
+
+		// Get user_id from account_users bridge table
+		var userID string
+		row := db.WithContext(c).Raw(`
+			SELECT u.id FROM users u
+			JOIN account_users au ON au.user_id = u.id
+			WHERE au.account_id = ?
+			LIMIT 1
+		`, accountID).Row()
+		if row.Scan(&userID) != nil || userID == "" {
+			return roleNames
+		}
+
+		// Get role names for user
+		roleStore := store.NewRoleStore(db)
+		roles, err := roleStore.ListRoleAssignmentsForUser(c, userID, ns)
+		if err == nil {
+			for _, r := range roles {
+				roleNames = append(roleNames, r.Name)
+			}
+		}
+		return roleNames
+	}
+
 	// inject into ctx for generator
 	ctx = context.WithValue(ctx, "ns", ns)
 	ctx = context.WithValue(ctx, "perm_resolver", permResolver)
+	ctx = context.WithValue(ctx, "roles_resolver", rolesResolver)
+
+	// Add user_id_resolver function to context for JWT generator to use
+	// This allows resolving user_id even when accountID is only known at token generation time
+	userIDResolver := func(c context.Context, accountID string) string {
+		if s.userStore == nil || accountID == "" {
+			return ""
+		}
+		db, err := s.GetIAMReadDB()
+		if err != nil {
+			return ""
+		}
+		var userID string
+		row := db.WithContext(c).Raw(`SELECT u.id FROM users u JOIN account_users au ON au.user_id = u.id WHERE au.account_id = ? LIMIT 1`, accountID).Row()
+		if row.Scan(&userID) == nil {
+			return userID
+		}
+		return ""
+	}
+	ctx = context.WithValue(ctx, "user_id_resolver", userIDResolver)
 
 	// Resolve actual user_id from users table using account_id via account_users bridge table
+	// This sets user_id for flows where tgr.UserID is already known (e.g., Password flow)
 	if tgr.UserID != "" && s.userStore != nil {
-		db, err := s.GetIAMReadDB()
-		if err == nil {
-			var userID string
-			row := db.WithContext(ctx).Raw(`SELECT u.id FROM users u JOIN account_users au ON au.user_id = u.id WHERE au.account_id = ? LIMIT 1`, tgr.UserID).Row()
-			if row.Scan(&userID) == nil && userID != "" {
-				ctx = context.WithValue(ctx, "user_id", userID)
-			}
+		if resolvedUID := userIDResolver(ctx, tgr.UserID); resolvedUID != "" {
+			ctx = context.WithValue(ctx, "user_id", resolvedUID)
 		}
 	}
 
@@ -524,13 +623,22 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 				return nil, err
 			}
 		}
-		if s.userStore != nil && ti.GetUserID() != "" && ns != "" {
-			banned, berr := s.userStore.IsUserBannedByAccount(ctx, ti.GetUserID(), ns)
-			if berr != nil {
-				return nil, berr
-			}
-			if banned {
-				return nil, errors.ErrUserBanned
+		// For auth code flow, resolve user_id after token generation (tgr.UserID was empty before)
+		accountID := ti.GetUserID()
+		if s.userStore != nil && accountID != "" && ns != "" {
+			db, dbErr := s.GetIAMReadDB()
+			if dbErr == nil {
+				var resolvedUserID string
+				row := db.WithContext(ctx).Raw(`SELECT u.id FROM users u JOIN account_users au ON au.user_id = u.id WHERE au.account_id = ? LIMIT 1`, accountID).Row()
+				if row.Scan(&resolvedUserID) == nil && resolvedUserID != "" {
+					banned, berr := s.userStore.IsUserBannedByAccount(ctx, resolvedUserID, ns)
+					if berr != nil {
+						return nil, berr
+					}
+					if banned {
+						return nil, errors.ErrUserBanned
+					}
+				}
 			}
 		}
 		return ti, nil
@@ -544,13 +652,16 @@ func (s *Server) GetAccessToken(ctx context.Context, gt oauth2.GrantType, tgr *o
 			}
 		}
 		// Ensure not banned for namespace or account
-		if s.userStore != nil && tgr.UserID != "" && ns != "" {
-			banned, berr := s.userStore.IsUserBannedByAccount(ctx, tgr.UserID, ns)
-			if berr != nil {
-				return nil, berr
-			}
-			if banned {
-				return nil, errors.ErrUserBanned
+		// Use resolved user_id from context (resolved at lines 542-552)
+		if s.userStore != nil && ns != "" {
+			if resolvedUserID, ok := ctx.Value("user_id").(string); ok && resolvedUserID != "" {
+				banned, berr := s.userStore.IsUserBannedByAccount(ctx, resolvedUserID, ns)
+				if berr != nil {
+					return nil, berr
+				}
+				if banned {
+					return nil, errors.ErrUserBanned
+				}
 			}
 		}
 		return s.Manager.GenerateAccessToken(ctx, gt, tgr)
