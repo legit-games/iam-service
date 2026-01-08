@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Table, Button, Tag, Space, Card, Input, Switch, message } from 'antd';
-import { ReloadOutlined, StopOutlined, CheckOutlined } from '@ant-design/icons';
+import { ReloadOutlined, StopOutlined, CheckOutlined, HistoryOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useNamespaceContext } from '../../hooks/useNamespaceContext';
 import { useNamespaceBans, useBanUser, useUnbanUser } from '../../hooks/useBans';
@@ -9,6 +10,7 @@ import BanModal from '../../components/BanModal';
 import dayjs from 'dayjs';
 
 export default function BanList() {
+  const navigate = useNavigate();
   const { currentNamespace } = useNamespaceContext();
   const [activeOnly, setActiveOnly] = useState(true);
   const [banUserId, setBanUserId] = useState('');
@@ -24,7 +26,18 @@ export default function BanList() {
       title: 'User ID',
       dataIndex: 'user_id',
       key: 'user_id',
-      render: (id: string) => <code>{id}</code>,
+      render: (id: string) => (
+        <Space>
+          <code>{id}</code>
+          <Button
+            type="link"
+            size="small"
+            icon={<HistoryOutlined />}
+            onClick={() => navigate(`/users/${id}/bans`)}
+            title="View Ban History"
+          />
+        </Space>
+      ),
     },
     {
       title: 'Type',
