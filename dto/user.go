@@ -12,6 +12,7 @@ type UserResponse struct {
 	AccountID         string          `json:"account_id"`
 	Namespace         *string         `json:"namespace,omitempty"`
 	UserType          models.UserType `json:"user_type"`
+	DisplayName       *string         `json:"display_name,omitempty"`
 	ProviderType      *string         `json:"provider_type,omitempty"`
 	ProviderAccountID *string         `json:"provider_account_id,omitempty"`
 	Orphaned          bool            `json:"orphaned"`
@@ -26,6 +27,7 @@ func FromUser(u *models.User) UserResponse {
 		AccountID:         u.AccountID,
 		Namespace:         u.Namespace,
 		UserType:          u.UserType,
+		DisplayName:       u.DisplayName,
 		ProviderType:      u.ProviderType,
 		ProviderAccountID: u.ProviderAccountID,
 		Orphaned:          u.Orphaned,

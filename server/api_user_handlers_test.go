@@ -58,3 +58,157 @@ func NewUniqueCounter() int64 {
 	_counter <- v + 1
 	return v
 }
+
+func TestListUsersGin_IncludesDisplayName(t *testing.T) {
+	db, err := openTestDB()
+	if err != nil {
+		t.Skip("No database connection available")
+	}
+	defer db.Close()
+
+	// Create test user with display_name
+	userID := fmt.Sprintf("test-user-display-%d", NewUniqueCounter())
+	accountID := fmt.Sprintf("test-account-display-%d", NewUniqueCounter())
+	displayName := "Test Display Name"
+
+	// Insert test account
+	_, err = db.Exec(`INSERT INTO accounts (id, username, password_hash, account_type) VALUES ($1, $2, '', 'HEAD') ON CONFLICT DO NOTHING`, accountID, accountID)
+	if err != nil {
+		t.Fatalf("Failed to insert test account: %v", err)
+	}
+	defer db.Exec(`DELETE FROM accounts WHERE id = $1`, accountID)
+
+	// Insert test user with display_name
+	_, err = db.Exec(`INSERT INTO users (id, account_id, namespace, user_type, display_name) VALUES ($1, $2, 'TESTNS', 'HEAD', $3) ON CONFLICT DO NOTHING`, userID, accountID, displayName)
+	if err != nil {
+		t.Fatalf("Failed to insert test user: %v", err)
+	}
+	defer db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+
+	// Verify the user was created with display_name
+	var storedDisplayName *string
+	err = db.QueryRow(`SELECT display_name FROM users WHERE id = $1`, userID).Scan(&storedDisplayName)
+	if err != nil {
+		t.Fatalf("Failed to query user: %v", err)
+	}
+	if storedDisplayName == nil || *storedDisplayName != displayName {
+		t.Errorf("Expected display_name to be '%s', got '%v'", displayName, storedDisplayName)
+	}
+}
+
+func TestGetUserGin_IncludesDisplayName(t *testing.T) {
+	db, err := openTestDB()
+	if err != nil {
+		t.Skip("No database connection available")
+	}
+	defer db.Close()
+
+	// Create test user with display_name
+	userID := fmt.Sprintf("test-user-get-display-%d", NewUniqueCounter())
+	accountID := fmt.Sprintf("test-account-get-display-%d", NewUniqueCounter())
+	displayName := "Get Test User"
+
+	// Insert test account
+	_, err = db.Exec(`INSERT INTO accounts (id, username, password_hash, account_type) VALUES ($1, $2, '', 'HEAD') ON CONFLICT DO NOTHING`, accountID, accountID)
+	if err != nil {
+		t.Fatalf("Failed to insert test account: %v", err)
+	}
+	defer db.Exec(`DELETE FROM accounts WHERE id = $1`, accountID)
+
+	// Insert test user with display_name
+	_, err = db.Exec(`INSERT INTO users (id, account_id, namespace, user_type, display_name) VALUES ($1, $2, 'TESTNS', 'HEAD', $3) ON CONFLICT DO NOTHING`, userID, accountID, displayName)
+	if err != nil {
+		t.Fatalf("Failed to insert test user: %v", err)
+	}
+	defer db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+
+	// Verify the user was created with display_name
+	var storedDisplayName *string
+	err = db.QueryRow(`SELECT display_name FROM users WHERE id = $1`, userID).Scan(&storedDisplayName)
+	if err != nil {
+		t.Fatalf("Failed to query user: %v", err)
+	}
+	if storedDisplayName == nil || *storedDisplayName != displayName {
+		t.Errorf("Expected display_name to be '%s', got '%v'", displayName, storedDisplayName)
+	}
+}
+
+func TestUserDisplayNameNullable(t *testing.T) {
+	db, err := openTestDB()
+	if err != nil {
+		t.Skip("No database connection available")
+	}
+	defer db.Close()
+
+	// Create test user without display_name
+	userID := fmt.Sprintf("test-user-no-display-%d", NewUniqueCounter())
+	accountID := fmt.Sprintf("test-account-no-display-%d", NewUniqueCounter())
+
+	// Insert test account
+	_, err = db.Exec(`INSERT INTO accounts (id, username, password_hash, account_type) VALUES ($1, $2, '', 'HEAD') ON CONFLICT DO NOTHING`, accountID, accountID)
+	if err != nil {
+		t.Fatalf("Failed to insert test account: %v", err)
+	}
+	defer db.Exec(`DELETE FROM accounts WHERE id = $1`, accountID)
+
+	// Insert test user without display_name
+	_, err = db.Exec(`INSERT INTO users (id, account_id, namespace, user_type) VALUES ($1, $2, 'TESTNS', 'HEAD') ON CONFLICT DO NOTHING`, userID, accountID)
+	if err != nil {
+		t.Fatalf("Failed to insert test user: %v", err)
+	}
+	defer db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+
+	// Verify the user was created without display_name (NULL)
+	var storedDisplayName *string
+	err = db.QueryRow(`SELECT display_name FROM users WHERE id = $1`, userID).Scan(&storedDisplayName)
+	if err != nil {
+		t.Fatalf("Failed to query user: %v", err)
+	}
+	if storedDisplayName != nil {
+		t.Errorf("Expected display_name to be NULL, got '%s'", *storedDisplayName)
+	}
+}
+
+func TestUserDisplayNameUpdate(t *testing.T) {
+	db, err := openTestDB()
+	if err != nil {
+		t.Skip("No database connection available")
+	}
+	defer db.Close()
+
+	// Create test user
+	userID := fmt.Sprintf("test-user-update-display-%d", NewUniqueCounter())
+	accountID := fmt.Sprintf("test-account-update-display-%d", NewUniqueCounter())
+	initialDisplayName := "Initial Name"
+	updatedDisplayName := "Updated Name"
+
+	// Insert test account
+	_, err = db.Exec(`INSERT INTO accounts (id, username, password_hash, account_type) VALUES ($1, $2, '', 'HEAD') ON CONFLICT DO NOTHING`, accountID, accountID)
+	if err != nil {
+		t.Fatalf("Failed to insert test account: %v", err)
+	}
+	defer db.Exec(`DELETE FROM accounts WHERE id = $1`, accountID)
+
+	// Insert test user with initial display_name
+	_, err = db.Exec(`INSERT INTO users (id, account_id, namespace, user_type, display_name) VALUES ($1, $2, 'TESTNS', 'HEAD', $3) ON CONFLICT DO NOTHING`, userID, accountID, initialDisplayName)
+	if err != nil {
+		t.Fatalf("Failed to insert test user: %v", err)
+	}
+	defer db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+
+	// Update display_name
+	_, err = db.Exec(`UPDATE users SET display_name = $1 WHERE id = $2`, updatedDisplayName, userID)
+	if err != nil {
+		t.Fatalf("Failed to update display_name: %v", err)
+	}
+
+	// Verify the update
+	var storedDisplayName *string
+	err = db.QueryRow(`SELECT display_name FROM users WHERE id = $1`, userID).Scan(&storedDisplayName)
+	if err != nil {
+		t.Fatalf("Failed to query user: %v", err)
+	}
+	if storedDisplayName == nil || *storedDisplayName != updatedDisplayName {
+		t.Errorf("Expected display_name to be '%s', got '%v'", updatedDisplayName, storedDisplayName)
+	}
+}

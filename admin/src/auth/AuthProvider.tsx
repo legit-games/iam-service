@@ -36,6 +36,7 @@ interface TokenResponse {
 interface UserInfoResponse {
   sub: string;
   preferred_username?: string;
+  display_name?: string;
   account_id?: string;
   namespace?: string;
 }
@@ -75,6 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return {
         id: data.sub,
         username: data.preferred_username || data.sub,
+        displayName: data.display_name,
         accountId: data.account_id || data.sub,
         namespace: data.namespace,
         scopes: scopes || [],

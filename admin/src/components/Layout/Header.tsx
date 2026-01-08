@@ -20,22 +20,33 @@ export default function Header({ collapsed, onToggle }: HeaderProps) {
   const { user, logout } = useAuth();
   const { currentNamespace, namespaces, setCurrentNamespace, isLoading } = useNamespaceContext();
 
-  const userMenuItems: MenuProps['items'] = [
-    {
-      key: 'user',
-      label: user?.username || 'User',
-      disabled: true,
-    },
-    {
-      type: 'divider',
-    },
-    {
-      key: 'logout',
-      icon: <LogoutOutlined />,
-      label: 'Logout',
-      onClick: logout,
-    },
-  ];
+  const displayName = user?.displayName;
+
+  const userMenuItems: MenuProps['items'] = displayName
+    ? [
+        {
+          key: 'user',
+          label: displayName,
+          disabled: true,
+        },
+        {
+          type: 'divider',
+        },
+        {
+          key: 'logout',
+          icon: <LogoutOutlined />,
+          label: 'Logout',
+          onClick: logout,
+        },
+      ]
+    : [
+        {
+          key: 'logout',
+          icon: <LogoutOutlined />,
+          label: 'Logout',
+          onClick: logout,
+        },
+      ];
 
   return (
     <AntHeader
@@ -72,7 +83,7 @@ export default function Header({ collapsed, onToggle }: HeaderProps) {
 
         <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
           <Button type="text" icon={<UserOutlined />}>
-            {user?.username}
+            {displayName || ''}
           </Button>
         </Dropdown>
       </Space>
