@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Descriptions, Button, Tag, Space, Empty, Spin, Alert } from 'antd';
 import { ArrowLeftOutlined, StopOutlined } from '@ant-design/icons';
 import { useState } from 'react';
@@ -7,18 +7,22 @@ import { useNamespaceContext } from '../../hooks/useNamespaceContext';
 import { useBanUser, useUserBans } from '../../hooks/useBans';
 import { useUserPlatforms } from '../../hooks/usePlatforms';
 import { useUser } from '../../hooks/useUsers';
+import type { SearchType } from '../../api/users';
 
 export default function UserDetail() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { currentNamespace } = useNamespaceContext();
+  const searchType = (searchParams.get('search_type') as SearchType) || 'user_id';
 
   const [banModalOpen, setBanModalOpen] = useState(false);
 
   // Fetch user details
   const { data: user, isLoading: userLoading, error: userError } = useUser(
     currentNamespace || '',
-    id || ''
+    id || '',
+    searchType
   );
 
   const { data: platforms = [], isLoading: platformsLoading } = useUserPlatforms(

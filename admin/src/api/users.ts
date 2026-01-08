@@ -1,6 +1,8 @@
 import apiClient from './client';
 import { Account, User } from './types';
 
+export type SearchType = 'user_id' | 'account_id' | 'username';
+
 export interface CreateHeadAccountRequest {
   username: string;
   password: string;
@@ -22,6 +24,15 @@ export interface UnlinkAccountRequest {
   namespace?: string;
 }
 
+export interface ListUsersParams {
+  search_type?: SearchType;
+  q?: string;
+  created_from?: string;
+  created_to?: string;
+  limit?: number;
+  offset?: number;
+}
+
 export const userApi = {
   // Create head account (with password)
   createHeadAccount: (data: CreateHeadAccountRequest) =>
@@ -39,9 +50,17 @@ export const userApi = {
   unlinkAccount: (accountId: string, data: UnlinkAccountRequest) =>
     apiClient.post(`/iam/v1/accounts/${accountId}/unlink`, data),
 
+  // List users with optional filters
+  listUsers: (namespace: string, params?: ListUsersParams) =>
+    apiClient.get<{ users: User[]; count: number }>(`/iam/v1/admin/namespaces/${namespace}/users`, {
+      params,
+    }),
+
   // Get user info by namespace and user ID
-  getUser: (namespace: string, userId: string) =>
-    apiClient.get<{ user: User }>(`/iam/v1/admin/namespaces/${namespace}/users/${userId}`),
+  getUser: (namespace: string, userId: string, searchType?: SearchType) =>
+    apiClient.get<{ user: User }>(`/iam/v1/admin/namespaces/${namespace}/users/${userId}`, {
+      params: searchType ? { search_type: searchType } : undefined,
+    }),
 
   // Get account info (placeholder - may need actual endpoint)
   getAccount: (accountId: string) =>

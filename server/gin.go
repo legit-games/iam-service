@@ -76,6 +76,8 @@ func NewGinEngine(s *Server) *gin.Engine {
 
 	// Admin: add permissions to an account (Gin-native)
 	// r.POST("/iam/v1/admin/accounts/:accountId/permissions", s.HandleAPIAddAccountPermissionsGin)
+	// Admin: list users (with optional filters)
+	r.GET("/iam/v1/admin/namespaces/:ns/users", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeUserRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER", permission.READ), s.HandleListUsersGin)
 	// Admin: get user by ID
 	r.GET("/iam/v1/admin/namespaces/:ns/users/:id", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeUserRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER", permission.READ), s.HandleGetUserGin)
 	// Admin: ban/unban user in namespace (Scope + Permission)
