@@ -9,7 +9,6 @@ import (
 // UserResponse represents a user in API responses.
 type UserResponse struct {
 	ID                string          `json:"id"`
-	AccountID         string          `json:"account_id"`
 	Namespace         *string         `json:"namespace,omitempty"`
 	UserType          models.UserType `json:"user_type"`
 	DisplayName       *string         `json:"display_name,omitempty"`
@@ -21,11 +20,9 @@ type UserResponse struct {
 }
 
 // FromUser converts a models.User to UserResponse.
-// accountID is passed separately since the relationship is now through account_users bridge table.
-func FromUser(u *models.User, accountID string) UserResponse {
+func FromUser(u *models.User) UserResponse {
 	return UserResponse{
 		ID:                u.ID,
-		AccountID:         accountID,
 		Namespace:         u.Namespace,
 		UserType:          u.UserType,
 		DisplayName:       u.DisplayName,
@@ -38,11 +35,10 @@ func FromUser(u *models.User, accountID string) UserResponse {
 }
 
 // FromUsers converts a slice of models.User to a slice of UserResponse.
-// accountID is passed separately since the relationship is now through account_users bridge table.
-func FromUsers(users []*models.User, accountID string) []UserResponse {
+func FromUsers(users []*models.User) []UserResponse {
 	responses := make([]UserResponse, len(users))
 	for i, u := range users {
-		responses[i] = FromUser(u, accountID)
+		responses[i] = FromUser(u)
 	}
 	return responses
 }
