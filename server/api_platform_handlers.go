@@ -1,6 +1,8 @@
 package server
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -10,10 +12,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-oauth2/oauth2/v4"
+	"github.com/go-oauth2/oauth2/v4/dto"
 	"github.com/go-oauth2/oauth2/v4/models"
 	"github.com/go-oauth2/oauth2/v4/platforms"
 	"github.com/go-oauth2/oauth2/v4/store"
-	"github.com/go-oauth2/oauth2/v4/dto"
 )
 
 // Platform ID validation regex (alphanumeric, 1-256 chars)
@@ -370,7 +372,7 @@ func (s *Server) getBaseURI(r *http.Request) string {
 // 1. Receives the authorization code from the platform
 // 2. Exchanges it for access tokens
 // 3. Creates or links the user account
-// 4. Redirects back to the original client application
+// 4. Redirects back to the login page with a one-time code
 func (s *Server) HandlePlatformAuthenticateGin(c *gin.Context) {
 	platformID := strings.ToLower(strings.TrimSpace(c.Param("platformId")))
 	code := c.Query("code")
@@ -379,65 +381,164 @@ func (s *Server) HandlePlatformAuthenticateGin(c *gin.Context) {
 	// For error responses from the platform
 	if errCode := c.Query("error"); errCode != "" {
 		errDesc := c.Query("error_description")
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":             errCode,
-			"error_description": errDesc,
-		})
+		c.Redirect(http.StatusFound, "/login?error="+url.QueryEscape(errCode)+"&error_description="+url.QueryEscape(errDesc))
 		return
 	}
 
 	if platformID == "" || code == "" || state == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":             "invalid_request",
-			"error_description": "missing required parameters",
-		})
+		c.Redirect(http.StatusFound, "/login?error=invalid_request&error_description="+url.QueryEscape("missing required parameters"))
 		return
 	}
 
 	// Load authorization request to get original client info
 	valkeyAddr := GetConfig().ValkeyAddr()
 	if valkeyAddr == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":             "server_error",
-			"error_description": "authorization request storage not configured",
-		})
+		c.Redirect(http.StatusFound, "/login?error=server_error&error_description="+url.QueryEscape("authorization request storage not configured"))
 		return
 	}
 
 	authRequestStore, err := store.NewAuthorizationRequestStore(valkeyAddr, GetConfig().ValkeyPrefix())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":             "server_error",
-			"error_description": "unable to connect to storage",
-		})
+		c.Redirect(http.StatusFound, "/login?error=server_error&error_description="+url.QueryEscape("unable to connect to storage"))
 		return
 	}
 
 	authRequest, err := authRequestStore.Load(c.Request.Context(), state)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":             "invalid_request",
-			"error_description": "authorization request not found or expired",
-		})
+		c.Redirect(http.StatusFound, "/login?error=invalid_request&error_description="+url.QueryEscape("authorization request not found or expired"))
 		return
 	}
 
-	// TODO: Exchange code for tokens with the platform
-	// TODO: Get user info from platform
-	// TODO: Create or link user account
-	// TODO: Generate IAM tokens
-	// TODO: Redirect to client's redirect_uri with authorization code
+	// Get database connection
+	db, err := s.GetPrimaryDB()
+	if err != nil {
+		c.Redirect(http.StatusFound, "/login?error=server_error&error_description="+url.QueryEscape("database not available"))
+		return
+	}
 
-	// For now, return a placeholder response
-	c.JSON(http.StatusOK, gin.H{
-		"message":      "platform authentication callback received",
-		"platform_id":  platformID,
-		"request_id":   state,
+	// Get platform client configuration
+	platformClientStore := store.NewPlatformClientStore(db)
+	platformClient, err := platformClientStore.GetByNamespaceAndPlatform(c.Request.Context(), authRequest.Namespace, platformID)
+	if err != nil || platformClient == nil {
+		c.Redirect(http.StatusFound, "/login?error=server_error&error_description="+url.QueryEscape("platform not configured"))
+		return
+	}
+
+	// Exchange code for tokens
+	tokenExchangeRegistry := platforms.NewTokenExchangeRegistry()
+	exchangeHandler := tokenExchangeRegistry.Get(platformID)
+	if exchangeHandler == nil {
+		c.Redirect(http.StatusFound, "/login?error=server_error&error_description="+url.QueryEscape("platform not supported for token exchange"))
+		return
+	}
+
+	baseURI := s.getBaseURI(c.Request)
+	callbackURI := fmt.Sprintf("%s/iam/v1/platforms/%s/authenticate", baseURI, platformID)
+
+	exchangeResult, err := exchangeHandler.ExchangeCode(c.Request.Context(), platformClient, code, callbackURI)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/login?error=server_error&error_description="+url.QueryEscape("token exchange failed: "+err.Error()))
+		return
+	}
+
+	platformUserInfo := exchangeResult.UserInfo
+
+	// Create or link platform user
+	platformUserStore := store.NewPlatformUserStore(db)
+	existingPlatformUser, err := platformUserStore.GetPlatformAccountByPlatformUserID(c.Request.Context(), authRequest.Namespace, platformID, platformUserInfo.PlatformUserID)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/login?error=server_error&error_description="+url.QueryEscape("failed to check existing user"))
+		return
+	}
+
+	var userID string
+	if existingPlatformUser != nil {
+		// User already linked, use existing user ID
+		userID = existingPlatformUser.UserID
+	} else {
+		// Create new headless account for the platform user
+		userStore := store.NewUserStore(db)
+		accountID := models.LegitID()
+
+		err = userStore.CreateHeadlessAccount(c.Request.Context(), accountID, authRequest.Namespace, platformID, platformUserInfo.PlatformUserID)
+		if err != nil {
+			c.Redirect(http.StatusFound, "/login?error=server_error&error_description="+url.QueryEscape("failed to create account"))
+			return
+		}
+
+		userID = accountID
+
+		// Create platform user link
+		newPlatformUser := &models.PlatformUser{
+			ID:             models.LegitID(),
+			Namespace:      authRequest.Namespace,
+			UserID:         userID,
+			PlatformID:     platformID,
+			PlatformUserID: platformUserInfo.PlatformUserID,
+			DisplayName:    platformUserInfo.DisplayName,
+			EmailAddress:   platformUserInfo.Email,
+			AvatarURL:      platformUserInfo.AvatarURL,
+		}
+		if err := platformUserStore.CreatePlatformAccount(c.Request.Context(), newPlatformUser); err != nil {
+			// Non-fatal if platform user already exists
+		}
+	}
+
+	// Create a one-time login code and store it in Redis
+	loginCode := models.LegitID()
+	loginCodeData := map[string]string{
+		"user_id":      userID,
 		"namespace":    authRequest.Namespace,
-		"client_id":    authRequest.ClientID,
-		"redirect_uri": authRequest.RedirectURI,
-		"note":         "token exchange not yet implemented",
-	})
+		"oauth_params": buildOAuthParams(authRequest),
+	}
+	loginCodeJSON, _ := json.Marshal(loginCodeData)
+
+	// Store login code in Redis with 5 minute TTL
+	loginCodeStore, _ := store.NewAuthorizationRequestStore(valkeyAddr, GetConfig().ValkeyPrefix()+"login_code:")
+	loginCodeReq := &models.AuthorizationRequest{
+		RequestID: loginCode,
+		Namespace: string(loginCodeJSON),
+	}
+	if err := loginCodeStore.Save(c.Request.Context(), loginCodeReq); err != nil {
+		c.Redirect(http.StatusFound, "/login?error=server_error&error_description="+url.QueryEscape("failed to create login session"))
+		return
+	}
+
+	// Delete the original authorization request
+	_ = authRequestStore.Delete(c.Request.Context(), state)
+
+	// Redirect to login page with login code
+	c.Redirect(http.StatusFound, "/login?platform_login_code="+loginCode)
+}
+
+// buildOAuthParams rebuilds OAuth query string from authorization request
+func buildOAuthParams(ar *models.AuthorizationRequest) string {
+	params := url.Values{}
+	if ar.ClientID != "" {
+		params.Set("client_id", ar.ClientID)
+	}
+	if ar.RedirectURI != "" {
+		params.Set("redirect_uri", ar.RedirectURI)
+	}
+	if ar.Scope != "" {
+		params.Set("scope", ar.Scope)
+	}
+	if ar.ResponseType != "" {
+		params.Set("response_type", ar.ResponseType)
+	}
+	if ar.State != "" {
+		params.Set("state", ar.State)
+	}
+	if ar.CodeChallenge != "" {
+		params.Set("code_challenge", ar.CodeChallenge)
+	}
+	if ar.CodeChallengeMethod != "" {
+		params.Set("code_challenge_method", ar.CodeChallengeMethod)
+	}
+	if ar.Nonce != "" {
+		params.Set("nonce", ar.Nonce)
+	}
+	return params.Encode()
 }
 
 // Device ID validation regex (alphanumeric/dash/underscore, no whitespace, 1-256 chars)
@@ -809,7 +910,7 @@ func (s *Server) HandleListPlatformClientsGin(c *gin.Context) {
 	}
 
 	platformClientStore := store.NewPlatformClientStore(db)
-	clients, err := platformClientStore.GetByNamespace(c.Request.Context(), namespace)
+	clients, err := platformClientStore.GetByNamespace(c.Request.Context(), namespace, false)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":             "server_error",
@@ -1035,6 +1136,334 @@ func (s *Server) HandleUpdatePlatformClientGin(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, dto.FromPlatformClient(platformClient))
+}
+
+// HandleStartPlatformLoginGin initiates a platform login flow from the login page.
+// Route: GET /iam/v1/public/platforms/:platformId/login
+// This endpoint:
+// 1. Looks up client by client_id to get namespace
+// 2. Creates an authorization request and stores it in Redis
+// 3. Redirects to the platform authorize endpoint
+func (s *Server) HandleStartPlatformLoginGin(c *gin.Context) {
+	platformID := strings.ToLower(strings.TrimSpace(c.Param("platformId")))
+	clientID := strings.TrimSpace(c.Query("client_id"))
+	redirectURI := strings.TrimSpace(c.Query("redirect_uri"))
+	state := strings.TrimSpace(c.Query("state"))
+	scope := strings.TrimSpace(c.Query("scope"))
+	responseType := strings.TrimSpace(c.Query("response_type"))
+	codeChallenge := strings.TrimSpace(c.Query("code_challenge"))
+	codeChallengeMethod := strings.TrimSpace(c.Query("code_challenge_method"))
+	nonce := strings.TrimSpace(c.Query("nonce"))
+
+	// Build error redirect URL helper
+	errorRedirect := func(errCode, errDesc string) {
+		if redirectURI != "" {
+			parsed, err := url.Parse(redirectURI)
+			if err == nil {
+				q := parsed.Query()
+				q.Set("error", errCode)
+				q.Set("error_description", errDesc)
+				if state != "" {
+					q.Set("state", state)
+				}
+				parsed.RawQuery = q.Encode()
+				c.Redirect(http.StatusFound, parsed.String())
+				return
+			}
+		}
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             errCode,
+			"error_description": errDesc,
+		})
+	}
+
+	// Validate required parameters
+	if platformID == "" || !platformIDRegex.MatchString(platformID) {
+		errorRedirect("invalid_request", "invalid or missing platform_id")
+		return
+	}
+	if clientID == "" {
+		errorRedirect("invalid_request", "client_id is required")
+		return
+	}
+
+	// Get database connection
+	db, err := s.GetIAMReadDB()
+	if err != nil {
+		errorRedirect("server_error", "database not available")
+		return
+	}
+
+	// Look up client to get namespace
+	clientStore := s.getDBClientStore()
+	clientInfo, err := clientStore.GetByID(c.Request.Context(), clientID)
+	if err != nil || clientInfo == nil {
+		errorRedirect("invalid_client", "client not found")
+		return
+	}
+
+	namespace := "DEFAULT"
+	if ns, ok := clientInfo.(interface{ GetNamespace() string }); ok {
+		if n := ns.GetNamespace(); n != "" {
+			namespace = n
+		}
+	}
+
+	// Check if platform is configured and active
+	platformClientStore := store.NewPlatformClientStore(db)
+	platformClient, err := platformClientStore.GetByNamespaceAndPlatform(c.Request.Context(), namespace, platformID)
+	if err != nil {
+		errorRedirect("server_error", "unable to query platform configuration")
+		return
+	}
+	if platformClient == nil {
+		errorRedirect("invalid_request", "platform not configured or inactive for this namespace")
+		return
+	}
+
+	// Create authorization request
+	valkeyAddr := GetConfig().ValkeyAddr()
+	if valkeyAddr == "" {
+		errorRedirect("server_error", "authorization request storage not configured")
+		return
+	}
+
+	authRequestStore, err := store.NewAuthorizationRequestStore(valkeyAddr, GetConfig().ValkeyPrefix())
+	if err != nil {
+		errorRedirect("server_error", "unable to connect to authorization request storage")
+		return
+	}
+
+	requestID := strings.ReplaceAll(models.LegitID(), "-", "")
+	authRequest := &models.AuthorizationRequest{
+		RequestID:           requestID,
+		Namespace:           namespace,
+		ClientID:            clientID,
+		RedirectURI:         redirectURI,
+		Scope:               scope,
+		ResponseType:        responseType,
+		State:               state,
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: codeChallengeMethod,
+		Nonce:               nonce,
+		TargetAuthPage:      "/auth", // After platform login, go to auth page
+	}
+
+	if err := authRequestStore.Save(c.Request.Context(), authRequest); err != nil {
+		errorRedirect("server_error", "unable to save authorization request")
+		return
+	}
+
+	// Redirect to platform authorize endpoint
+	authorizeURL := fmt.Sprintf("/iam/v1/oauth/platforms/%s/authorize?request_id=%s&client_id=%s",
+		platformID, requestID, clientID)
+	if redirectURI != "" {
+		authorizeURL += "&redirect_uri=" + url.QueryEscape(redirectURI)
+	}
+
+	c.Redirect(http.StatusFound, authorizeURL)
+}
+
+// HandleGetActivePlatformsGin returns active platform clients for a namespace (public API for login page).
+// Route: GET /iam/v1/public/namespaces/:ns/platforms
+func (s *Server) HandleGetActivePlatformsGin(c *gin.Context) {
+	namespace := strings.ToUpper(strings.TrimSpace(c.Param("ns")))
+	if namespace == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_request",
+			"error_description": "namespace is required",
+		})
+		return
+	}
+
+	db, err := s.GetIAMReadDB()
+	if err != nil {
+		if err == ErrUserDBDSNNotSet {
+			c.JSON(http.StatusNotImplemented, gin.H{
+				"error":             "not_implemented",
+				"error_description": "database not configured",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to connect to database",
+		})
+		return
+	}
+
+	platformClientStore := store.NewPlatformClientStore(db)
+	clients, err := platformClientStore.GetByNamespace(c.Request.Context(), namespace, true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to query platform clients",
+		})
+		return
+	}
+
+	// Return only essential information for login page (hide secrets)
+	type PublicPlatformInfo struct {
+		PlatformID   string `json:"platform_id"`
+		PlatformName string `json:"platform_name,omitempty"`
+	}
+
+	platforms := make([]PublicPlatformInfo, len(clients))
+	for i, client := range clients {
+		platforms[i] = PublicPlatformInfo{
+			PlatformID:   client.PlatformID,
+			PlatformName: client.PlatformName,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"platforms": platforms})
+}
+
+// HandleGetActivePlatformsByClientGin returns active platform clients for a client_id's namespace.
+// Route: GET /iam/v1/public/platforms
+// This is used by the login page which has client_id but not namespace.
+func (s *Server) HandleGetActivePlatformsByClientGin(c *gin.Context) {
+	clientID := strings.TrimSpace(c.Query("client_id"))
+	if clientID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_request",
+			"error_description": "client_id is required",
+		})
+		return
+	}
+
+	db, err := s.GetIAMReadDB()
+	if err != nil {
+		if err == ErrUserDBDSNNotSet {
+			c.JSON(http.StatusOK, gin.H{"platforms": []interface{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to connect to database",
+		})
+		return
+	}
+
+	// Look up client to get namespace
+	clientStore := s.getDBClientStore()
+	clientInfo, err := clientStore.GetByID(c.Request.Context(), clientID)
+	if err != nil || clientInfo == nil {
+		// Return empty platforms if client not found (graceful degradation)
+		c.JSON(http.StatusOK, gin.H{"platforms": []interface{}{}})
+		return
+	}
+
+	namespace := "DEFAULT"
+	if ns, ok := clientInfo.(interface{ GetNamespace() string }); ok {
+		if n := ns.GetNamespace(); n != "" {
+			namespace = n
+		}
+	}
+
+	platformClientStore := store.NewPlatformClientStore(db)
+	clients, err := platformClientStore.GetByNamespace(c.Request.Context(), namespace, true)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"platforms": []interface{}{}})
+		return
+	}
+
+	// Return only essential information for login page (hide secrets)
+	type PublicPlatformInfo struct {
+		PlatformID   string `json:"platform_id"`
+		PlatformName string `json:"platform_name,omitempty"`
+	}
+
+	platforms := make([]PublicPlatformInfo, len(clients))
+	for i, client := range clients {
+		platforms[i] = PublicPlatformInfo{
+			PlatformID:   client.PlatformID,
+			PlatformName: client.PlatformName,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"platforms": platforms})
+}
+
+// HandleUpdatePlatformClientActiveGin toggles the active status of a platform client.
+// Route: PUT /iam/v1/admin/namespaces/:ns/platform-clients/:platformId/active
+func (s *Server) HandleUpdatePlatformClientActiveGin(c *gin.Context) {
+	namespace := strings.ToUpper(strings.TrimSpace(c.Param("ns")))
+	platformID := strings.ToLower(strings.TrimSpace(c.Param("platformId")))
+
+	if namespace == "" || platformID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_request",
+			"error_description": "namespace and platformId are required",
+		})
+		return
+	}
+
+	var req struct {
+		Active bool `json:"active"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_request",
+			"error_description": "invalid JSON body",
+		})
+		return
+	}
+
+	db, err := s.GetPrimaryDB()
+	if err != nil {
+		if err == ErrUserDBDSNNotSet {
+			c.JSON(http.StatusNotImplemented, gin.H{
+				"error":             "not_implemented",
+				"error_description": "database not configured",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to connect to database",
+		})
+		return
+	}
+
+	platformClientStore := store.NewPlatformClientStore(db)
+
+	// Get all platform clients (including inactive) to find the target
+	clients, err := platformClientStore.GetByNamespace(c.Request.Context(), namespace, false)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to query platform client",
+		})
+		return
+	}
+
+	var existing *models.PlatformClient
+	for i := range clients {
+		if clients[i].PlatformID == platformID {
+			existing = &clients[i]
+			break
+		}
+	}
+
+	if existing == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":             "not_found",
+			"error_description": "platform client not found",
+		})
+		return
+	}
+
+	existing.Active = req.Active
+	if err := platformClientStore.Update(c.Request.Context(), existing); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to update platform client",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.FromPlatformClient(existing))
 }
 
 // HandleDeletePlatformClientGin deletes a platform client configuration.

@@ -3,7 +3,7 @@ import { Table, Button, Modal, Form, Input, Select, Switch, Tag, message, Space,
 import { PlusOutlined, ReloadOutlined, EditOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useNamespaceContext } from '../../hooks/useNamespaceContext';
-import { usePlatformClients, useCreatePlatformClient, useUpdatePlatformClient } from '../../hooks/usePlatforms';
+import { usePlatformClients, useCreatePlatformClient, useUpdatePlatformClient, useUpdatePlatformClientActive } from '../../hooks/usePlatforms';
 import {
   PLATFORM_LIST,
   PLATFORM_CONFIGS,
@@ -26,6 +26,7 @@ export default function PlatformClientList() {
   const { data: platforms = [], isLoading, refetch } = usePlatformClients(currentNamespace || '');
   const createMutation = useCreatePlatformClient(currentNamespace || '');
   const updateMutation = useUpdatePlatformClient(currentNamespace || '');
+  const updateActiveMutation = useUpdatePlatformClientActive(currentNamespace || '');
 
   // Get current platform config
   const currentPlatformConfig = selectedPlatformId ? PLATFORM_CONFIGS[selectedPlatformId] : null;
@@ -93,8 +94,24 @@ export default function PlatformClientList() {
       title: 'Active',
       dataIndex: 'active',
       key: 'active',
-      render: (active: boolean) => (
-        <Tag color={active ? 'green' : 'default'}>{active ? 'Active' : 'Inactive'}</Tag>
+      render: (active: boolean, record: PlatformClient) => (
+        <Switch
+          checked={active}
+          loading={updateActiveMutation.isPending}
+          onChange={async (checked) => {
+            try {
+              await updateActiveMutation.mutateAsync({
+                platformId: record.platform_id,
+                active: checked,
+              });
+              message.success(`Platform ${checked ? 'enabled' : 'disabled'} successfully`);
+            } catch (err) {
+              if (err instanceof Error) {
+                message.error(err.message);
+              }
+            }
+          }}
+        />
       ),
     },
     {

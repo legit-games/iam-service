@@ -60,6 +60,18 @@ export function useUpdatePlatformClient(namespace: string) {
   });
 }
 
+export function useUpdatePlatformClientActive(namespace: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ platformId, active }: { platformId: string; active: boolean }) =>
+      platformApi.updatePlatformClientActive(namespace, platformId, active).then((r) => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...PLATFORMS_KEY, 'clients', namespace] });
+    },
+  });
+}
+
 export function useDeletePlatformClient(namespace: string) {
   const queryClient = useQueryClient();
 

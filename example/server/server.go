@@ -217,6 +217,53 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check for platform_login_code (from social login callback)
+	platformLoginCode := r.URL.Query().Get("platform_login_code")
+	if platformLoginCode != "" {
+		// Load login code data from Redis
+		cfg := server.GetConfig()
+		valkeyAddr := cfg.ValkeyAddr()
+		if valkeyAddr != "" {
+			loginCodeStore, err := store.NewAuthorizationRequestStore(valkeyAddr, cfg.ValkeyPrefix()+"login_code:")
+			if err == nil {
+				loginCodeReq, err := loginCodeStore.Load(r.Context(), platformLoginCode)
+				if err == nil && loginCodeReq != nil {
+					// Parse the login code data (stored in Namespace field as JSON)
+					var loginCodeData map[string]string
+					if json.Unmarshal([]byte(loginCodeReq.Namespace), &loginCodeData) == nil {
+						userID := loginCodeData["user_id"]
+						oauthParams := loginCodeData["oauth_params"]
+
+						if userID != "" {
+							// Set user as logged in
+							sessionStore.Set("LoggedInUserID", userID)
+							if oauthParams != "" {
+								sessionStore.Set("OAuthQuery", oauthParams)
+							}
+							sessionStore.Save()
+
+							// Delete the used login code
+							_ = loginCodeStore.Delete(r.Context(), platformLoginCode)
+
+							// Redirect to auth page
+							redirectURL := "/auth"
+							if oauthParams != "" {
+								redirectURL = "/auth?" + oauthParams
+							}
+							w.Header().Set("Location", redirectURL)
+							w.WriteHeader(http.StatusFound)
+							return
+						}
+					}
+				}
+			}
+		}
+		// If login code processing failed, show error
+		w.Header().Set("Location", "/login?error=invalid_login_code&error_description="+url.QueryEscape("Platform login failed"))
+		w.WriteHeader(http.StatusFound)
+		return
+	}
+
 	// Store OAuth params from URL query in session for later use
 	// Don't overwrite OAuth params with error params (from failed login redirect)
 	if r.URL.RawQuery != "" && r.Method == "GET" {

@@ -32,6 +32,12 @@ export const platformApi = {
       data
     ),
 
+  updatePlatformClientActive: (namespace: string, platformId: string, active: boolean) =>
+    apiClient.put<PlatformClient>(
+      `/iam/v1/admin/namespaces/${namespace}/platform-clients/${platformId}/active`,
+      { active }
+    ),
+
   deletePlatformClient: (namespace: string, platformId: string) =>
     apiClient.delete(`/iam/v1/admin/namespaces/${namespace}/platform-clients/${platformId}`),
 };
