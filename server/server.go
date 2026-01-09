@@ -71,6 +71,7 @@ func NewServer(cfg *Config, manager oauth2.Manager) *Server {
 	if db, err := s.GetPrimaryDB(); err == nil {
 		s.nsStore = store.NewNamespaceStore(db)
 		s.userStore = store.NewUserStore(db)
+		s.linkCodeStore = store.NewLinkCodeStore(db)
 	}
 	// gin routes will be registered via NewGinEngine
 
@@ -115,8 +116,9 @@ type Server struct {
 	RefreshTokenResolveHandler   RefreshTokenResolveHandler
 	AccessTokenResolveHandler    AccessTokenResolveHandler
 
-	nsStore   *store.NamespaceStore
-	userStore *store.UserStore
+	nsStore       *store.NamespaceStore
+	userStore     *store.UserStore
+	linkCodeStore *store.LinkCodeStore
 
 	// centralized DB handles (lazy-initialized)
 	dbMu      sync.Mutex
@@ -308,6 +310,7 @@ func (s *Server) initializeDatabases() error {
 	if db, err := s.GetPrimaryDB(); err == nil {
 		s.nsStore = store.NewNamespaceStore(db)
 		s.userStore = store.NewUserStore(db)
+		s.linkCodeStore = store.NewLinkCodeStore(db)
 	}
 
 	return nil

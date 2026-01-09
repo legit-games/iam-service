@@ -68,6 +68,13 @@ func NewGinEngine(s *Server) *gin.Engine {
 	adminGroup.POST("/users/headless", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.CREATE), s.handleCreateHeadlessAccount)
 	adminGroup.POST("/users/:id/link", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.UPDATE), s.handleLinkAccount)
 	adminGroup.POST("/users/:id/unlink", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.UPDATE), s.handleUnlinkAccount)
+	// Link eligibility check and platforms
+	adminGroup.GET("/users/:id/link/check", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.READ), s.handleCheckLinkEligibility)
+	adminGroup.GET("/users/:id/platforms", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.READ), s.handleGetLinkedPlatforms)
+	// One-time link code management
+	adminGroup.POST("/users/:id/link-code", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.CREATE), s.handleGenerateLinkCode)
+	adminGroup.GET("/link-codes/:code/validate", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.READ), s.handleValidateLinkCode)
+	adminGroup.POST("/users/:id/link-with-code", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.UPDATE), s.handleLinkWithCode)
 
 	// Admin: client upsert and permissions (Scope + Permission)
 	adminGroup.POST("/admin/namespaces/:ns/clients", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeClientWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:CLIENT", permission.CREATE), s.HandleUpsertClientByNamespaceGin)

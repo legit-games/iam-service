@@ -423,3 +423,186 @@ func (s *UserStore) UpdateAccountCountryIfEmpty(ctx context.Context, accountID s
 		country, accountID,
 	).Error
 }
+
+// LinkEligibility contains the result of link eligibility check.
+type LinkEligibility struct {
+	Eligible       bool   `json:"eligible"`
+	Reason         string `json:"reason,omitempty"`
+	ConflictUserID string `json:"conflict_user_id,omitempty"`
+}
+
+// LinkedPlatform represents a platform account linked to a user.
+type LinkedPlatform struct {
+	UserID            string  `json:"user_id"`
+	Namespace         string  `json:"namespace"`
+	ProviderType      string  `json:"provider_type"`
+	ProviderAccountID string  `json:"provider_account_id"`
+	AccountID         string  `json:"account_id"`
+}
+
+// GetAccountInfo returns account information by account ID.
+func (s *UserStore) GetAccountInfo(ctx context.Context, accountID string) (*models.Account, error) {
+	var account models.Account
+	err := s.DB.WithContext(ctx).Raw(`
+		SELECT id, username, email, country, account_type, created_at
+		FROM accounts WHERE id = ?
+	`, accountID).Scan(&account).Error
+	if err != nil {
+		return nil, err
+	}
+	if account.ID == "" {
+		return nil, nil
+	}
+	return &account, nil
+}
+
+// GetAccountByUserID returns account information by user ID.
+func (s *UserStore) GetAccountByUserID(ctx context.Context, userID string) (*models.Account, error) {
+	var account models.Account
+	err := s.DB.WithContext(ctx).Raw(`
+		SELECT a.id, a.username, a.email, a.country, a.account_type, a.created_at
+		FROM accounts a
+		JOIN account_users au ON au.account_id = a.id
+		WHERE au.user_id = ?
+	`, userID).Scan(&account).Error
+	if err != nil {
+		return nil, err
+	}
+	if account.ID == "" {
+		return nil, nil
+	}
+	return &account, nil
+}
+
+// GetLinkedPlatforms returns all platform accounts linked to an account.
+func (s *UserStore) GetLinkedPlatforms(ctx context.Context, accountID string) ([]LinkedPlatform, error) {
+	var platforms []LinkedPlatform
+	err := s.DB.WithContext(ctx).Raw(`
+		SELECT u.id as user_id, u.namespace, u.provider_type, u.provider_account_id, au.account_id
+		FROM users u
+		JOIN account_users au ON au.user_id = u.id
+		WHERE au.account_id = ? AND u.user_type = 'BODY' AND u.provider_type IS NOT NULL
+	`, accountID).Scan(&platforms).Error
+	return platforms, err
+}
+
+// GetLinkedPlatformsByNamespace returns all platform accounts linked in a specific namespace.
+func (s *UserStore) GetLinkedPlatformsByNamespace(ctx context.Context, accountID, namespace string) ([]LinkedPlatform, error) {
+	var platforms []LinkedPlatform
+	err := s.DB.WithContext(ctx).Raw(`
+		SELECT u.id as user_id, u.namespace, u.provider_type, u.provider_account_id, au.account_id
+		FROM users u
+		JOIN account_users au ON au.user_id = u.id
+		WHERE au.account_id = ? AND u.namespace = ? AND u.user_type = 'BODY' AND u.provider_type IS NOT NULL
+	`, accountID, namespace).Scan(&platforms).Error
+	return platforms, err
+}
+
+// CheckPlatformConflict checks if a platform account is already linked to another user.
+// Returns the conflicting user ID if found.
+func (s *UserStore) CheckPlatformConflict(ctx context.Context, namespace, providerType, providerAccountID string) (*LinkedPlatform, error) {
+	var platform LinkedPlatform
+	err := s.DB.WithContext(ctx).Raw(`
+		SELECT u.id as user_id, u.namespace, u.provider_type, u.provider_account_id, au.account_id
+		FROM users u
+		JOIN account_users au ON au.user_id = u.id
+		WHERE u.namespace = ? AND u.provider_type = ? AND u.provider_account_id = ? AND u.orphaned = FALSE
+	`, namespace, providerType, providerAccountID).Scan(&platform).Error
+	if err != nil {
+		return nil, err
+	}
+	if platform.UserID == "" {
+		return nil, nil
+	}
+	return &platform, nil
+}
+
+// CheckLinkEligibility validates if a head account can link a headless account.
+// Rules:
+// 1. Head account must have email (full account requirement)
+// 2. Headless account must exist and be of type HEADLESS
+// 3. Head account must not already have a linked platform in the same namespace with different provider account
+// 4. The platform from headless must not be linked to another account
+func (s *UserStore) CheckLinkEligibility(ctx context.Context, namespace, headAccountID, headlessAccountID string) (*LinkEligibility, error) {
+	// Check head account exists and has email
+	headAccount, err := s.GetAccountInfo(ctx, headAccountID)
+	if err != nil {
+		return nil, err
+	}
+	if headAccount == nil {
+		return &LinkEligibility{Eligible: false, Reason: "head_account_not_found"}, nil
+	}
+	if headAccount.Email == nil || *headAccount.Email == "" {
+		return &LinkEligibility{Eligible: false, Reason: "head_account_requires_email"}, nil
+	}
+
+	// Check headless account exists and is HEADLESS type
+	headlessAccount, err := s.GetAccountInfo(ctx, headlessAccountID)
+	if err != nil {
+		return nil, err
+	}
+	if headlessAccount == nil {
+		return &LinkEligibility{Eligible: false, Reason: "headless_account_not_found"}, nil
+	}
+	if headlessAccount.AccountType != models.AccountHeadless {
+		return &LinkEligibility{Eligible: false, Reason: "account_is_not_headless"}, nil
+	}
+
+	// Get headless account's platform info
+	headlessPlatforms, err := s.GetLinkedPlatformsByNamespace(ctx, headlessAccountID, namespace)
+	if err != nil {
+		return nil, err
+	}
+	if len(headlessPlatforms) == 0 {
+		return &LinkEligibility{Eligible: false, Reason: "headless_has_no_platform_in_namespace"}, nil
+	}
+
+	// Check if head account already has platform linked in same namespace with different provider
+	headPlatforms, err := s.GetLinkedPlatformsByNamespace(ctx, headAccountID, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, headPlatform := range headPlatforms {
+		for _, headlessPlatform := range headlessPlatforms {
+			// Same provider type but different account ID = conflict
+			if headPlatform.ProviderType == headlessPlatform.ProviderType &&
+				headPlatform.ProviderAccountID != headlessPlatform.ProviderAccountID {
+				return &LinkEligibility{
+					Eligible: false,
+					Reason:   "head_already_linked_to_different_platform_account",
+				}, nil
+			}
+			// Same provider and same account = already linked
+			if headPlatform.ProviderType == headlessPlatform.ProviderType &&
+				headPlatform.ProviderAccountID == headlessPlatform.ProviderAccountID {
+				return &LinkEligibility{
+					Eligible: false,
+					Reason:   "platform_already_linked_to_head",
+				}, nil
+			}
+		}
+	}
+
+	return &LinkEligibility{Eligible: true}, nil
+}
+
+// GetHeadlessAccountByPlatform finds a headless account by platform credentials.
+func (s *UserStore) GetHeadlessAccountByPlatform(ctx context.Context, namespace, providerType, providerAccountID string) (*models.Account, error) {
+	var account models.Account
+	err := s.DB.WithContext(ctx).Raw(`
+		SELECT a.id, a.username, a.email, a.country, a.account_type, a.created_at
+		FROM accounts a
+		JOIN account_users au ON au.account_id = a.id
+		JOIN users u ON u.id = au.user_id
+		WHERE u.namespace = ? AND u.provider_type = ? AND u.provider_account_id = ?
+		  AND a.account_type = 'HEADLESS'
+	`, namespace, providerType, providerAccountID).Scan(&account).Error
+	if err != nil {
+		return nil, err
+	}
+	if account.ID == "" {
+		return nil, nil
+	}
+	return &account, nil
+}

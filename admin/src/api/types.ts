@@ -73,6 +73,7 @@ export interface User {
   account_id: string;
   namespace?: string;
   user_type: UserType;
+  account_type?: AccountType;
   email?: string;
   country?: string; // ISO 3166-1 alpha-2 country code
   provider_type?: string;

@@ -29,11 +29,25 @@ export default function UserList() {
       render: (id: string) => <code>{id}</code>,
     },
     {
-      title: 'Type',
+      title: 'Account Type',
+      dataIndex: 'account_type',
+      key: 'account_type',
+      render: (type: string) => {
+        const colorMap: Record<string, string> = {
+          HEAD: 'blue',
+          HEADLESS: 'orange',
+          FULL: 'green',
+          ORPHAN: 'default',
+        };
+        return <Tag color={colorMap[type] || 'default'}>{type || '-'}</Tag>;
+      },
+    },
+    {
+      title: 'User Type',
       dataIndex: 'user_type',
       key: 'user_type',
       render: (type: string) => (
-        <Tag color={type === 'HEAD' ? 'blue' : 'green'}>{type}</Tag>
+        <Tag color={type === 'HEAD' ? 'blue' : 'cyan'}>{type}</Tag>
       ),
     },
     {

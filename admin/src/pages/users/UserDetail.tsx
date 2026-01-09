@@ -152,8 +152,15 @@ export default function UserDetail() {
           <Descriptions.Item label="User ID">
             <code>{user.id}</code>
           </Descriptions.Item>
-          <Descriptions.Item label="Type">
+          <Descriptions.Item label="User Type">
             <Tag color={user.user_type === 'HEAD' ? 'blue' : 'green'}>{user.user_type}</Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="Account Type">
+            <Tag color={
+              user.account_type === 'HEAD' ? 'blue' :
+              user.account_type === 'HEADLESS' ? 'orange' :
+              user.account_type === 'FULL' ? 'green' : 'default'
+            }>{user.account_type || '-'}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="Email">
             {user.email ? (
