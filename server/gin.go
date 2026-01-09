@@ -93,6 +93,7 @@ func NewGinEngine(s *Server) *gin.Engine {
 	adminGroup.POST("/admin/accounts/:id/ban", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.UPDATE), s.HandleBanAccountGin)
 	adminGroup.POST("/admin/accounts/:id/unban", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.UPDATE), s.HandleUnbanAccountGin)
 	adminGroup.GET("/admin/accounts/:id/bans", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.READ), s.HandleListAccountBansGin)
+	adminGroup.GET("/admin/accounts/:id/login-history", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.READ), s.HandleListLoginHistoryGin)
 	// Admin: user permissions
 	adminGroup.GET("/admin/users/:id/permissions", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeUserRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.READ), s.HandleGetUserPermissionsGin)
 	adminGroup.PUT("/admin/users/:id/permissions", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeUserAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.UPDATE), s.HandleUpdateUserPermissionsGin)

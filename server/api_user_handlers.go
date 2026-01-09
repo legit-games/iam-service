@@ -601,3 +601,49 @@ func (s *Server) HandleListAccountBansGin(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"bans": rows})
 }
+
+// HandleListLoginHistoryGin returns login history for an account
+// Query parameters:
+// - limit: max results (default 50, max 100)
+// - offset: pagination offset (default 0)
+func (s *Server) HandleListLoginHistoryGin(c *gin.Context) {
+	if s.userStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "user store not initialized"})
+		return
+	}
+	accountID := strings.TrimSpace(c.Param("id"))
+	if accountID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "account ID is required"})
+		return
+	}
+
+	// Parse limit and offset
+	limit := 50
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := fmt.Sscanf(l, "%d", &limit); err == nil && parsed > 0 {
+			if limit > 100 {
+				limit = 100
+			}
+		}
+	}
+	offset := 0
+	if o := c.Query("offset"); o != "" {
+		fmt.Sscanf(o, "%d", &offset)
+	}
+
+	var rows []map[string]interface{}
+	db := s.userStore.DB
+	query := `SELECT id, account_id, login_at, ip_address, user_agent, success, failure_reason
+		FROM login_history
+		WHERE account_id = ?
+		ORDER BY login_at DESC
+		LIMIT ? OFFSET ?`
+	if err := db.WithContext(c.Request.Context()).Raw(query, accountID, limit, offset).Scan(&rows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
+		return
+	}
+	if rows == nil {
+		rows = []map[string]interface{}{}
+	}
+	c.JSON(http.StatusOK, gin.H{"login_history": rows, "count": len(rows)})
+}

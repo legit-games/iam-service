@@ -4,6 +4,7 @@ import { message } from 'antd';
 
 const USERS_KEY = ['users'];
 const USER_PERMISSIONS_KEY = ['user-permissions'];
+const LOGIN_HISTORY_KEY = ['login-history'];
 
 export function useUser(namespace: string, userId: string, searchType?: SearchType) {
   return useQuery({
@@ -35,5 +36,14 @@ export function useUpdateUserPermissions(userId: string) {
     onError: (error: Error) => {
       message.error(`Failed to update permissions: ${error.message}`);
     },
+  });
+}
+
+export function useLoginHistory(accountId: string, limit?: number) {
+  return useQuery({
+    queryKey: [...LOGIN_HISTORY_KEY, accountId, limit],
+    queryFn: () => userApi.getLoginHistory(accountId, { limit }).then((r) => r.data.login_history),
+    enabled: !!accountId,
+    retry: false,
   });
 }

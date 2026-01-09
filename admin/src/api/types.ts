@@ -80,6 +80,16 @@ export interface User {
   updated_at: string;
 }
 
+export interface LoginHistory {
+  id: string;
+  account_id: string;
+  login_at: string;
+  ip_address?: string;
+  user_agent?: string;
+  success: boolean;
+  failure_reason?: string;
+}
+
 // Role types
 export type RoleType = 'USER' | 'CLIENT';
 
