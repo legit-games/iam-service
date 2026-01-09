@@ -36,19 +36,19 @@ export interface ListUsersParams {
 export const userApi = {
   // Create head account (with password)
   createHeadAccount: (data: CreateHeadAccountRequest) =>
-    apiClient.post<Account>('/iam/v1/accounts/head', data),
+    apiClient.post<Account>('/iam/v1/users/head', data),
 
   // Create headless account (provider-linked)
   createHeadlessAccount: (data: CreateHeadlessAccountRequest) =>
-    apiClient.post<Account>('/iam/v1/accounts/headless', data),
+    apiClient.post<Account>('/iam/v1/users/headless', data),
 
   // Link accounts
   linkAccount: (accountId: string, data: LinkAccountRequest) =>
-    apiClient.post(`/iam/v1/accounts/${accountId}/link`, data),
+    apiClient.post(`/iam/v1/users/${accountId}/link`, data),
 
   // Unlink accounts
   unlinkAccount: (accountId: string, data: UnlinkAccountRequest) =>
-    apiClient.post(`/iam/v1/accounts/${accountId}/unlink`, data),
+    apiClient.post(`/iam/v1/users/${accountId}/unlink`, data),
 
   // List users with optional filters
   listUsers: (namespace: string, params?: ListUsersParams) =>
@@ -64,7 +64,7 @@ export const userApi = {
 
   // Get account info (placeholder - may need actual endpoint)
   getAccount: (accountId: string) =>
-    apiClient.get<Account>(`/iam/v1/admin/accounts/${accountId}`),
+    apiClient.get<Account>(`/iam/v1/admin/users/${accountId}`),
 
   // Get user permissions
   getUserPermissions: (userId: string) =>
@@ -84,5 +84,5 @@ export const userApi = {
 
   // Get login history for an account
   getLoginHistory: (accountId: string, params?: { limit?: number; offset?: number }) =>
-    apiClient.get<{ login_history: LoginHistory[]; count: number }>(`/iam/v1/admin/accounts/${accountId}/login-history`, { params }),
+    apiClient.get<{ login_history: LoginHistory[]; count: number }>(`/iam/v1/admin/users/${accountId}/login-history`, { params }),
 };

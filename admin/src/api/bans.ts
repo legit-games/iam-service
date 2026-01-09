@@ -25,18 +25,18 @@ export const banApi = {
 
   // Account bans (global)
   banAccount: (accountId: string, data: BanRequest) =>
-    apiClient.post<AccountBan>(`/iam/v1/admin/accounts/${accountId}/ban`, data),
+    apiClient.post<AccountBan>(`/iam/v1/admin/users/${accountId}/ban`, data),
 
   unbanAccount: (accountId: string, data: UnbanRequest) =>
-    apiClient.post(`/iam/v1/admin/accounts/${accountId}/unban`, data),
+    apiClient.post(`/iam/v1/admin/users/${accountId}/unban`, data),
 
   listAccountBans: (accountId: string) =>
-    apiClient.get<{ bans: AccountBan[] }>(`/iam/v1/admin/accounts/${accountId}/bans`),
+    apiClient.get<{ bans: AccountBan[] }>(`/iam/v1/admin/users/${accountId}/bans`),
 
   // Ban history (placeholder - may need actual endpoints)
   getUserBanHistory: (namespace: string, userId: string) =>
     apiClient.get<UserBanHistory[]>(`/iam/v1/admin/namespaces/${namespace}/users/${userId}/ban-history`),
 
   getAccountBanHistory: (accountId: string) =>
-    apiClient.get<AccountBanHistory[]>(`/iam/v1/admin/accounts/${accountId}/ban-history`),
+    apiClient.get<AccountBanHistory[]>(`/iam/v1/admin/users/${accountId}/ban-history`),
 };

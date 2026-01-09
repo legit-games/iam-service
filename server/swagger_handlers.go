@@ -31,7 +31,7 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 			"/iam/v1/public/users":       s.swaggerRegisterUserPath(),
 			"/iam/v1/public/users/login": s.swaggerAPILoginPath(),
 			"/iam/v1/admin/users":        s.swaggerRegisterUserPath(),
-			"/iam/v1/admin/accounts/{accountId}/permissions": map[string]interface{}{
+			"/iam/v1/admin/users/{accountId}/permissions": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Append permissions to an account",
 					"description": "Adds or merges permissions array into the account's JSONB permissions field. Requires ADMIN:NAMESPACE:*:ACCOUNT_UPDATE.",
@@ -147,7 +147,7 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 				},
 			},
 			// Account-level ban endpoints
-			"/iam/v1/admin/accounts/{id}/ban": map[string]interface{}{
+			"/iam/v1/admin/users/{id}/ban": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Ban an account (affects all users under the account)",
 					"description": "Requires ADMIN:NAMESPACE:*:ACCOUNT UPDATE. Bans an entire account with PERMANENT or TIMED ban. Actor is derived from the caller's access token.",
@@ -165,7 +165,7 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Account banned"}, "400": map[string]interface{}{"description": "Invalid request"}, "401": map[string]interface{}{"description": "Unauthorized"}},
 				},
 			},
-			"/iam/v1/admin/accounts/{id}/unban": map[string]interface{}{
+			"/iam/v1/admin/users/{id}/unban": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Unban an account",
 					"description": "Requires ADMIN:NAMESPACE:*:ACCOUNT UPDATE. Removes an account's ban. Actor is derived from the caller's access token.",
@@ -181,7 +181,7 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Account unbanned"}, "400": map[string]interface{}{"description": "Invalid request"}, "401": map[string]interface{}{"description": "Unauthorized"}},
 				},
 			},
-			"/iam/v1/admin/accounts/{id}/bans": map[string]interface{}{
+			"/iam/v1/admin/users/{id}/bans": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List bans for an account",
 					"description": "Requires ADMIN:NAMESPACE:*:ACCOUNT READ. Returns current and historical bans for the account.",
@@ -451,7 +451,7 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 			}
 		}
 	}
-	if p, ok := paths["/iam/v1/admin/accounts/{id}/ban"].(map[string]interface{}); ok {
+	if p, ok := paths["/iam/v1/admin/users/{id}/ban"].(map[string]interface{}); ok {
 		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
 			post["description"] = "Requires ADMIN:NAMESPACE:*:ACCOUNT UPDATE. Bans an entire account with PERMANENT or TIMED ban. Actor is derived from the caller's access token."
 			if rb, ok3 := post["requestBody"].(map[string]interface{}); ok3 {
@@ -467,7 +467,7 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 			}
 		}
 	}
-	if p, ok := paths["/iam/v1/admin/accounts/{id}/unban"].(map[string]interface{}); ok {
+	if p, ok := paths["/iam/v1/admin/users/{id}/unban"].(map[string]interface{}); ok {
 		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
 			post["description"] = "Requires ADMIN:NAMESPACE:*:ACCOUNT UPDATE. Removes an account's ban. Actor is derived from the caller's access token."
 			if rb, ok3 := post["requestBody"].(map[string]interface{}); ok3 {
@@ -614,7 +614,7 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 			"/iam/v1/public/users":       s.swaggerRegisterUserPath(),
 			"/iam/v1/public/users/login": s.swaggerAPILoginPath(),
 			"/iam/v1/admin/users":        s.swaggerRegisterUserPath(),
-			"/iam/v1/admin/accounts/{accountId}/permissions": map[string]interface{}{
+			"/iam/v1/admin/users/{accountId}/permissions": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Append permissions to an account",
 					"description": "Adds or merges permissions array into the account's JSONB permissions field. Requires ADMIN:NAMESPACE:*:ACCOUNT_UPDATE.",
@@ -729,7 +729,7 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 				},
 			},
 			// Account-level ban endpoints
-			"/iam/v1/admin/accounts/{id}/ban": map[string]interface{}{
+			"/iam/v1/admin/users/{id}/ban": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Ban an account (affects all users under the account)",
 					"description": "Requires ADMIN:NAMESPACE:*:ACCOUNT UPDATE. Bans an entire account with PERMANENT or TIMED ban. Actor is derived from the caller's access token.",
@@ -747,7 +747,7 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Account banned"}, "400": map[string]interface{}{"description": "Invalid request"}, "401": map[string]interface{}{"description": "Unauthorized"}},
 				},
 			},
-			"/iam/v1/admin/accounts/{id}/unban": map[string]interface{}{
+			"/iam/v1/admin/users/{id}/unban": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Unban an account",
 					"description": "Requires ADMIN:NAMESPACE:*:ACCOUNT UPDATE. Removes an account's ban. Actor is derived from the caller's access token.",
@@ -763,7 +763,7 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Account unbanned"}, "400": map[string]interface{}{"description": "Invalid request"}, "401": map[string]interface{}{"description": "Unauthorized"}},
 				},
 			},
-			"/iam/v1/admin/accounts/{id}/bans": map[string]interface{}{
+			"/iam/v1/admin/users/{id}/bans": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List bans for an account",
 					"description": "Requires ADMIN:NAMESPACE:*:ACCOUNT READ. Returns current and historical bans for the account.",
@@ -1031,7 +1031,7 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 			}
 		}
 	}
-	if p, ok := paths["/iam/v1/admin/accounts/{id}/ban"].(map[string]interface{}); ok {
+	if p, ok := paths["/iam/v1/admin/users/{id}/ban"].(map[string]interface{}); ok {
 		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
 			post["description"] = "Requires ADMIN:NAMESPACE:*:ACCOUNT UPDATE. Bans an entire account with PERMANENT or TIMED ban. Actor is derived from the caller's access token."
 			if rb, ok3 := post["requestBody"].(map[string]interface{}); ok3 {
@@ -1047,7 +1047,7 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 			}
 		}
 	}
-	if p, ok := paths["/iam/v1/admin/accounts/{id}/unban"].(map[string]interface{}); ok {
+	if p, ok := paths["/iam/v1/admin/users/{id}/unban"].(map[string]interface{}); ok {
 		if post, ok2 := p["post"].(map[string]interface{}); ok2 {
 			post["description"] = "Requires ADMIN:NAMESPACE:*:ACCOUNT UPDATE. Removes an account's ban. Actor is derived from the caller's access token."
 			if rb, ok3 := post["requestBody"].(map[string]interface{}); ok3 {
