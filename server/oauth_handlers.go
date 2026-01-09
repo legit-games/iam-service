@@ -84,6 +84,7 @@ func (s *Server) HandleAuthorizeRequest(w http.ResponseWriter, r *http.Request) 
 func (s *Server) ValidationAuthorizeRequest(r *http.Request) (*AuthorizeRequest, error) {
 	redirectURI := r.FormValue("redirect_uri")
 	clientID := r.FormValue("client_id")
+	scope := r.FormValue("scope")
 	if !(r.Method == "GET" || r.Method == "POST") ||
 		clientID == "" {
 		return nil, errors.ErrInvalidRequest
@@ -122,12 +123,18 @@ func (s *Server) ValidationAuthorizeRequest(r *http.Request) (*AuthorizeRequest,
 		return nil, errors.ErrUnsupportedCodeChallengeMethod
 	}
 
+	// For POST requests, prefer PostFormValue to get user-selected scope from checkboxes
+	// instead of the original scope from session restoration
+	if r.Method == "POST" && r.PostFormValue("scope") != "" {
+		scope = r.PostFormValue("scope")
+	}
+
 	req := &AuthorizeRequest{
 		RedirectURI:         redirectURI,
 		ResponseType:        resType,
 		ClientID:            clientID,
 		State:               r.FormValue("state"),
-		Scope:               r.FormValue("scope"),
+		Scope:               scope,
 		Request:             r,
 		CodeChallenge:       cc,
 		CodeChallengeMethod: ccm,

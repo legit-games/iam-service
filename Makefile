@@ -176,7 +176,7 @@ admin-embed: admin-build
 	@echo "Admin console embedded successfully."
 
 # Development: run Go server (dev mode) and Vite dev server concurrently
-dev-admin: db db-wait
+dev-admin: kill-server db db-wait migrate-up admin-install
 	@echo "Starting Go server (dev mode) and Vite dev server..."
 	@trap 'kill %1 %2 2>/dev/null' SIGINT SIGTERM; \
 	(MIGRATE_ON_START=1 MIGRATE_DRIVER=postgres MIGRATE_DSN=$(REG_DB_DSN_DEFAULT) REG_DB_DSN=$(REG_DB_DSN_DEFAULT) VALKEY_ADDR=$(VALKEY_ADDR_DEFAULT) go run -tags dev ./example/server) & \
