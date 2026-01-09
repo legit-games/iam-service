@@ -42,13 +42,13 @@ export const userApi = {
   createHeadlessAccount: (data: CreateHeadlessAccountRequest) =>
     apiClient.post<Account>('/iam/v1/users/headless', data),
 
-  // Link accounts
-  linkAccount: (accountId: string, data: LinkAccountRequest) =>
-    apiClient.post(`/iam/v1/users/${accountId}/link`, data),
+  // Link users
+  linkUser: (userId: string, data: LinkAccountRequest) =>
+    apiClient.post(`/iam/v1/users/${userId}/link`, data),
 
-  // Unlink accounts
-  unlinkAccount: (accountId: string, data: UnlinkAccountRequest) =>
-    apiClient.post(`/iam/v1/users/${accountId}/unlink`, data),
+  // Unlink users
+  unlinkUser: (userId: string, data: UnlinkAccountRequest) =>
+    apiClient.post(`/iam/v1/users/${userId}/unlink`, data),
 
   // List users with optional filters
   listUsers: (namespace: string, params?: ListUsersParams) =>
@@ -62,9 +62,9 @@ export const userApi = {
       params: searchType ? { search_type: searchType } : undefined,
     }),
 
-  // Get account info (placeholder - may need actual endpoint)
-  getAccount: (accountId: string) =>
-    apiClient.get<Account>(`/iam/v1/admin/users/${accountId}`),
+  // Get user info (placeholder - may need actual endpoint)
+  getUserById: (userId: string) =>
+    apiClient.get<Account>(`/iam/v1/admin/users/${userId}`),
 
   // Get user permissions
   getUserPermissions: (userId: string) =>
@@ -82,7 +82,7 @@ export const userApi = {
   removeUserPermissions: (userId: string, permissions: string[]) =>
     apiClient.delete<{ user_id: string; permissions: string[] }>(`/iam/v1/admin/users/${userId}/permissions`, { data: { permissions } }),
 
-  // Get login history for an account
-  getLoginHistory: (accountId: string, params?: { limit?: number; offset?: number }) =>
-    apiClient.get<{ login_history: LoginHistory[]; count: number }>(`/iam/v1/admin/users/${accountId}/login-history`, { params }),
+  // Get login history for a user
+  getLoginHistory: (userId: string, params?: { limit?: number; offset?: number }) =>
+    apiClient.get<{ login_history: LoginHistory[]; count: number }>(`/iam/v1/admin/users/${userId}/login-history`, { params }),
 };

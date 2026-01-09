@@ -23,20 +23,20 @@ export const banApi = {
   listNamespaceBans: (namespace: string, params?: { active?: boolean }) =>
     apiClient.get<{ bans: UserBan[] }>(`/iam/v1/admin/namespaces/${namespace}/bans`, { params }),
 
-  // Account bans (global)
-  banAccount: (accountId: string, data: BanRequest) =>
-    apiClient.post<AccountBan>(`/iam/v1/admin/users/${accountId}/ban`, data),
+  // Global user bans
+  banUserGlobal: (userId: string, data: BanRequest) =>
+    apiClient.post<AccountBan>(`/iam/v1/admin/users/${userId}/ban`, data),
 
-  unbanAccount: (accountId: string, data: UnbanRequest) =>
-    apiClient.post(`/iam/v1/admin/users/${accountId}/unban`, data),
+  unbanUserGlobal: (userId: string, data: UnbanRequest) =>
+    apiClient.post(`/iam/v1/admin/users/${userId}/unban`, data),
 
-  listAccountBans: (accountId: string) =>
-    apiClient.get<{ bans: AccountBan[] }>(`/iam/v1/admin/users/${accountId}/bans`),
+  listUserBansGlobal: (userId: string) =>
+    apiClient.get<{ bans: AccountBan[] }>(`/iam/v1/admin/users/${userId}/bans`),
 
   // Ban history (placeholder - may need actual endpoints)
   getUserBanHistory: (namespace: string, userId: string) =>
     apiClient.get<UserBanHistory[]>(`/iam/v1/admin/namespaces/${namespace}/users/${userId}/ban-history`),
 
-  getAccountBanHistory: (accountId: string) =>
-    apiClient.get<AccountBanHistory[]>(`/iam/v1/admin/users/${accountId}/ban-history`),
+  getUserBanHistoryGlobal: (userId: string) =>
+    apiClient.get<AccountBanHistory[]>(`/iam/v1/admin/users/${userId}/ban-history`),
 };
