@@ -73,6 +73,7 @@ export interface User {
   account_id: string;
   namespace?: string;
   user_type: UserType;
+  email?: string;
   provider_type?: string;
   provider_account_id?: string;
   orphaned: boolean;

@@ -1,6 +1,6 @@
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Descriptions, Button, Tag, Space, Empty, Spin, Alert, Table } from 'antd';
-import { ArrowLeftOutlined, StopOutlined, HistoryOutlined, SaveOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, StopOutlined, HistoryOutlined, SaveOutlined, CheckCircleOutlined, CloseCircleOutlined, MailOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
 import type { ColumnsType } from 'antd/es/table';
 import BanModal from '../../components/BanModal';
@@ -154,6 +154,16 @@ export default function UserDetail() {
           </Descriptions.Item>
           <Descriptions.Item label="Type">
             <Tag color={user.user_type === 'HEAD' ? 'blue' : 'green'}>{user.user_type}</Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="Email">
+            {user.email ? (
+              <Space>
+                <MailOutlined />
+                {user.email}
+              </Space>
+            ) : (
+              <span style={{ color: '#999' }}>-</span>
+            )}
           </Descriptions.Item>
           <Descriptions.Item label="Namespace">
             {user.namespace ? <Tag>{user.namespace}</Tag> : <Tag color="purple">HEAD (Global)</Tag>}

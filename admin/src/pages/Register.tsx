@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button, Form, Input, message, Alert } from 'antd';
-import { UserAddOutlined } from '@ant-design/icons';
+import { UserAddOutlined, MailOutlined } from '@ant-design/icons';
 import axios from 'axios';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 interface RegisterForm {
   username: string;
+  email: string;
   password: string;
   confirmPassword: string;
 }
@@ -25,6 +26,7 @@ export default function Register() {
       await axios.post(`${API_BASE}/iam/v1/public/users`, {
         username: values.username,
         password: values.password,
+        email: values.email,
       });
 
       message.success('Registration successful! Please sign in.');
@@ -74,6 +76,21 @@ export default function Register() {
               size="large"
               placeholder="Username"
               autoComplete="username"
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="email"
+            rules={[
+              { required: true, message: 'Please enter your email' },
+              { type: 'email', message: 'Please enter a valid email address' },
+            ]}
+          >
+            <Input
+              size="large"
+              prefix={<MailOutlined style={{ color: '#bfbfbf' }} />}
+              placeholder="Email"
+              autoComplete="email"
             />
           </Form.Item>
 

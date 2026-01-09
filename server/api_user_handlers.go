@@ -94,6 +94,7 @@ func (s *Server) HandleAPIRegisterUserGin(c *gin.Context) {
 	var payload struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		Email    string `json:"email"`
 	}
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "invalid JSON payload"})
@@ -101,10 +102,20 @@ func (s *Server) HandleAPIRegisterUserGin(c *gin.Context) {
 	}
 	payload.Username = strings.TrimSpace(payload.Username)
 	payload.Password = strings.TrimSpace(payload.Password)
+	payload.Email = strings.TrimSpace(payload.Email)
 	if payload.Username == "" || payload.Password == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "username and password are required"})
 		return
 	}
+	if payload.Email == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "email is required"})
+		return
+	}
+	if !isValidEmail(payload.Email) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "invalid email format"})
+		return
+	}
+
 	dbRead, err := s.GetIAMReadDB()
 	if err != nil {
 		if err == ErrUserDBDSNNotSet {
@@ -114,19 +125,46 @@ func (s *Server) HandleAPIRegisterUserGin(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("open db: %v", err)})
 		return
 	}
+
+	// Check if username already exists
 	var exists int
 	if err := dbRead.WithContext(c.Request.Context()).Raw(`SELECT 1 FROM accounts WHERE username=$1 LIMIT 1`, payload.Username).Row().Scan(&exists); err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "conflict", "error_description": "username already exists"})
 		return
 	}
+
+	// Check if email already exists
+	if err := dbRead.WithContext(c.Request.Context()).Raw(`SELECT 1 FROM accounts WHERE email=$1 LIMIT 1`, payload.Email).Row().Scan(&exists); err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "conflict", "error_description": "email already exists"})
+		return
+	}
+
 	accountID := models.LegitID()
 	hash, _ := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
-	userID, err := s.userStore.CreateHeadAccount(c.Request.Context(), accountID, payload.Username, string(hash))
+	userID, err := s.userStore.CreateHeadAccount(c.Request.Context(), accountID, payload.Username, string(hash), &payload.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("create account: %v", err)})
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"user_id": userID})
+}
+
+// isValidEmail performs basic email format validation
+func isValidEmail(email string) bool {
+	// Basic email validation: must contain @ and at least one . after @
+	atIdx := strings.Index(email, "@")
+	if atIdx < 1 {
+		return false
+	}
+	domain := email[atIdx+1:]
+	if len(domain) < 3 || !strings.Contains(domain, ".") {
+		return false
+	}
+	// Check no spaces
+	if strings.ContainsAny(email, " \t\n\r") {
+		return false
+	}
+	return true
 }
 
 // Swagger fragments for API paths
@@ -411,21 +449,23 @@ func (s *Server) HandleGetUserGin(c *gin.Context) {
 	switch searchType {
 	case "user_id":
 		query = `
-			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at, a.email
 			FROM users u
 			JOIN account_users au ON au.user_id = u.id
+			LEFT JOIN accounts a ON au.account_id = a.id
 			WHERE u.id = ?`
 		args = []interface{}{searchID}
 	case "account_id":
 		query = `
-			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at, a.email
 			FROM users u
 			JOIN account_users au ON au.user_id = u.id
+			LEFT JOIN accounts a ON au.account_id = a.id
 			WHERE au.account_id = ?`
 		args = []interface{}{searchID}
 	case "username":
 		query = `
-			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at, a.email
 			FROM users u
 			JOIN account_users au ON au.user_id = u.id
 			INNER JOIN accounts a ON au.account_id = a.id
@@ -434,7 +474,7 @@ func (s *Server) HandleGetUserGin(c *gin.Context) {
 	default:
 		// Default: search by user ID, account ID, or username (join with accounts table)
 		query = `
-			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
+			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at, a.email
 			FROM users u
 			JOIN account_users au ON au.user_id = u.id
 			LEFT JOIN accounts a ON au.account_id = a.id

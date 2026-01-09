@@ -18,10 +18,10 @@ func NewUserStore(db *gorm.DB) *UserStore { return &UserStore{DB: db} }
 
 // CreateHeadAccount creates a HEAD account with a HEAD user (namespace=nil).
 // Returns the created userID.
-func (s *UserStore) CreateHeadAccount(ctx context.Context, accountID, username, passwordHash string) (string, error) {
+func (s *UserStore) CreateHeadAccount(ctx context.Context, accountID, username, passwordHash string, email *string) (string, error) {
 	userID := models.LegitID()
 	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`INSERT INTO accounts(id, username, password_hash, account_type) VALUES(?,?,?,?)`, accountID, username, passwordHash, string(models.AccountHead)).Error; err != nil {
+		if err := tx.Exec(`INSERT INTO accounts(id, username, password_hash, account_type, email) VALUES(?,?,?,?,?)`, accountID, username, passwordHash, string(models.AccountHead), email).Error; err != nil {
 			return err
 		}
 		if err := tx.Exec(`INSERT INTO users(id, namespace, user_type, orphaned) VALUES(?,?,?,FALSE)`, userID, nil, string(models.UserHead)).Error; err != nil {
