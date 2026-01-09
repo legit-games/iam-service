@@ -12,3 +12,10 @@ migrate:
   dsn: "postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable"
   cmd: "up"
   target: 0
+
+seed:
+  on_start: true
+  driver: "postgres"
+  dsn: "postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable"
+  cmd: "up"
+  target: 0
