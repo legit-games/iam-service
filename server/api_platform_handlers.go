@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -484,61 +483,52 @@ func (s *Server) HandlePlatformAuthenticateGin(c *gin.Context) {
 		}
 	}
 
-	// Create a one-time login code and store it in Redis
-	loginCode := models.LegitID()
-	loginCodeData := map[string]string{
-		"user_id":      userID,
-		"namespace":    authRequest.Namespace,
-		"oauth_params": buildOAuthParams(authRequest),
-	}
-	loginCodeJSON, _ := json.Marshal(loginCodeData)
-
-	// Store login code in Redis with 5 minute TTL
-	loginCodeStore, _ := store.NewAuthorizationRequestStore(valkeyAddr, GetConfig().ValkeyPrefix()+"login_code:")
-	loginCodeReq := &models.AuthorizationRequest{
-		RequestID: loginCode,
-		Namespace: string(loginCodeJSON),
-	}
-	if err := loginCodeStore.Save(c.Request.Context(), loginCodeReq); err != nil {
-		c.Redirect(http.StatusFound, "/login?error=server_error&error_description="+url.QueryEscape("failed to create login session"))
-		return
-	}
-
 	// Delete the original authorization request
 	_ = authRequestStore.Delete(c.Request.Context(), state)
 
-	// Redirect to login page with login code
-	c.Redirect(http.StatusFound, "/login?platform_login_code="+loginCode)
-}
+	// Generate OAuth authorization code directly
+	var codeChallengeMethod oauth2.CodeChallengeMethod
+	switch authRequest.CodeChallengeMethod {
+	case "S256":
+		codeChallengeMethod = oauth2.CodeChallengeS256
+	case "plain":
+		codeChallengeMethod = oauth2.CodeChallengePlain
+	}
 
-// buildOAuthParams rebuilds OAuth query string from authorization request
-func buildOAuthParams(ar *models.AuthorizationRequest) string {
-	params := url.Values{}
-	if ar.ClientID != "" {
-		params.Set("client_id", ar.ClientID)
+	authorizeReq := &AuthorizeRequest{
+		ResponseType:        oauth2.Code,
+		ClientID:            authRequest.ClientID,
+		Scope:               authRequest.Scope,
+		RedirectURI:         authRequest.RedirectURI,
+		State:               authRequest.State,
+		UserID:              userID,
+		CodeChallenge:       authRequest.CodeChallenge,
+		CodeChallengeMethod: codeChallengeMethod,
+		Nonce:               authRequest.Nonce,
+		Request:             c.Request,
 	}
-	if ar.RedirectURI != "" {
-		params.Set("redirect_uri", ar.RedirectURI)
+
+	ti, err := s.GetAuthorizeToken(c.Request.Context(), authorizeReq)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/login?error=server_error&error_description="+url.QueryEscape("failed to generate authorization code"))
+		return
 	}
-	if ar.Scope != "" {
-		params.Set("scope", ar.Scope)
+
+	// Build redirect URL with authorization code
+	redirectURL, err := url.Parse(authRequest.RedirectURI)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/login?error=server_error&error_description="+url.QueryEscape("invalid redirect URI"))
+		return
 	}
-	if ar.ResponseType != "" {
-		params.Set("response_type", ar.ResponseType)
+
+	query := redirectURL.Query()
+	query.Set("code", ti.GetCode())
+	if authRequest.State != "" {
+		query.Set("state", authRequest.State)
 	}
-	if ar.State != "" {
-		params.Set("state", ar.State)
-	}
-	if ar.CodeChallenge != "" {
-		params.Set("code_challenge", ar.CodeChallenge)
-	}
-	if ar.CodeChallengeMethod != "" {
-		params.Set("code_challenge_method", ar.CodeChallengeMethod)
-	}
-	if ar.Nonce != "" {
-		params.Set("nonce", ar.Nonce)
-	}
-	return params.Encode()
+	redirectURL.RawQuery = query.Encode()
+
+	c.Redirect(http.StatusFound, redirectURL.String())
 }
 
 // Device ID validation regex (alphanumeric/dash/underscore, no whitespace, 1-256 chars)
