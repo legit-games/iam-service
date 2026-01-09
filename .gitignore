@@ -41,3 +41,7 @@ example/**/client
 # Coverage and test cache
 coverage/
 *.coverprofile
+
+# Seed SQL files (contain sensitive data)
+seed/sql/*.sql
+!seed/sql/.gitkeep.sql

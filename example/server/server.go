@@ -29,8 +29,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
-	// migrations on start (optional)
+	// migrations and seed data on start (optional)
 	"github.com/go-oauth2/oauth2/v4/migrate"
+	"github.com/go-oauth2/oauth2/v4/seed"
 )
 
 //go:embed static/*
@@ -64,6 +65,13 @@ func main() {
 	// MIGRATE_ON_START=1 MIGRATE_DRIVER=sqlite MIGRATE_DSN=./oauth2.db
 	if err := migrate.RunFromEnv(); err != nil {
 		log.Fatalf("migrations failed: %v", err)
+	}
+
+	// Optionally run seed data after migrations.
+	// Configure via environment variables (see seed.RunFromEnv docs):
+	// SEED_ON_START=1 (uses same MIGRATE_DRIVER and MIGRATE_DSN by default)
+	if err := seed.RunFromEnv(); err != nil {
+		log.Fatalf("seed failed: %v", err)
 	}
 
 	manager := manage.NewDefaultManager()
