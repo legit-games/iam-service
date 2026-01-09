@@ -93,8 +93,24 @@ export default function PlatformClientList() {
       title: 'Active',
       dataIndex: 'active',
       key: 'active',
-      render: (active: boolean) => (
-        <Tag color={active ? 'green' : 'default'}>{active ? 'Active' : 'Inactive'}</Tag>
+      render: (active: boolean, record: PlatformClient) => (
+        <Switch
+          checked={active}
+          loading={updateMutation.isPending}
+          onChange={async (checked) => {
+            try {
+              await updateMutation.mutateAsync({
+                platformId: record.platform_id,
+                active: checked,
+              });
+              message.success(`Platform ${checked ? 'enabled' : 'disabled'} successfully`);
+            } catch (err) {
+              if (err instanceof Error) {
+                message.error(err.message);
+              }
+            }
+          }}
+        />
       ),
     },
     {

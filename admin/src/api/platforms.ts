@@ -4,7 +4,7 @@ import { PlatformClient, PlatformUser } from './types';
 export const platformApi = {
   // Platform users
   listUserPlatforms: (namespace: string, userId: string) =>
-    apiClient.get<PlatformUser[]>(
+    apiClient.get<{ platforms: PlatformUser[] }>(
       `/iam/v1/oauth/admin/namespaces/${namespace}/users/${userId}/platforms`
     ),
 
@@ -30,6 +30,12 @@ export const platformApi = {
     apiClient.put<PlatformClient>(
       `/iam/v1/admin/namespaces/${namespace}/platform-clients/${platformId}`,
       data
+    ),
+
+  updatePlatformClientActive: (namespace: string, platformId: string, active: boolean) =>
+    apiClient.put<PlatformClient>(
+      `/iam/v1/admin/namespaces/${namespace}/platform-clients/${platformId}/active`,
+      { active }
     ),
 
   deletePlatformClient: (namespace: string, platformId: string) =>

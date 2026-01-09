@@ -50,6 +50,9 @@ func NewGinEngine(s *Server) *gin.Engine {
 	// JSON API routes (Gin-native)
 	r.POST("/iam/v1/public/login", s.HandleAPILoginGin)
 	r.POST("/iam/v1/public/users", s.HandleAPIRegisterUserGin)
+	r.GET("/iam/v1/public/namespaces/:ns/platforms", s.HandleGetActivePlatformsGin)
+	r.GET("/iam/v1/public/platforms", s.HandleGetActivePlatformsByClientGin)
+	r.GET("/iam/v1/public/platforms/:platformId/login", s.HandleStartPlatformLoginGin)
 
 	// Admin route group with TokenMiddleware
 	// TokenMiddleware validates bearer token and sets user_id, client_id, scopes in context
@@ -118,6 +121,7 @@ func NewGinEngine(s *Server) *gin.Engine {
 	adminGroup.GET("/admin/namespaces/:ns/platform-clients/:platformId", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:PLATFORM", permission.READ), s.HandleGetPlatformClientGin)
 	adminGroup.POST("/admin/namespaces/:ns/platform-clients", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:PLATFORM", permission.CREATE), s.HandleCreatePlatformClientGin)
 	adminGroup.PUT("/admin/namespaces/:ns/platform-clients/:platformId", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:PLATFORM", permission.UPDATE), s.HandleUpdatePlatformClientGin)
+	adminGroup.PUT("/admin/namespaces/:ns/platform-clients/:platformId/active", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:PLATFORM", permission.UPDATE), s.HandleUpdatePlatformClientActiveGin)
 	adminGroup.DELETE("/admin/namespaces/:ns/platform-clients/:platformId", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:PLATFORM", permission.DELETE), s.HandleDeletePlatformClientGin)
 
 	// Platform OAuth authorization flow (public - no auth required)

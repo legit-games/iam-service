@@ -7,7 +7,7 @@ export const PLATFORMS_KEY = ['platforms'];
 export function useUserPlatforms(namespace: string, userId: string) {
   return useQuery({
     queryKey: [...PLATFORMS_KEY, 'users', namespace, userId],
-    queryFn: () => platformApi.listUserPlatforms(namespace, userId).then((r) => r.data),
+    queryFn: () => platformApi.listUserPlatforms(namespace, userId).then((r) => r.data.platforms || []),
     enabled: !!namespace && !!userId,
   });
 }
@@ -52,8 +52,14 @@ export function useUpdatePlatformClient(namespace: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ platformId, data }: { platformId: string; data: Partial<PlatformClient> }) =>
-      platformApi.updatePlatformClient(namespace, platformId, data).then((r) => r.data),
+    mutationFn: ({ platformId, data, active }: { platformId: string; data?: Partial<PlatformClient>; active?: boolean }) => {
+      // If only active is provided, use the active-only endpoint
+      if (active !== undefined && !data) {
+        return platformApi.updatePlatformClientActive(namespace, platformId, active).then((r) => r.data);
+      }
+      // Otherwise use the full update endpoint
+      return platformApi.updatePlatformClient(namespace, platformId, data || {}).then((r) => r.data);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...PLATFORMS_KEY, 'clients', namespace] });
     },

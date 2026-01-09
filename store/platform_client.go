@@ -33,12 +33,16 @@ func (s *PlatformClientStore) GetByNamespaceAndPlatform(ctx context.Context, nam
 	return &pc, nil
 }
 
-// GetByNamespace returns all platform clients for a namespace.
-func (s *PlatformClientStore) GetByNamespace(ctx context.Context, namespace string) ([]models.PlatformClient, error) {
+// GetByNamespace returns platform clients for a namespace.
+// If activeOnly is true, only returns active clients (for public API).
+// If activeOnly is false, returns all clients including inactive (for admin).
+func (s *PlatformClientStore) GetByNamespace(ctx context.Context, namespace string, activeOnly bool) ([]models.PlatformClient, error) {
 	var clients []models.PlatformClient
-	err := s.DB.WithContext(ctx).
-		Where("namespace = ? AND active = ?", namespace, true).
-		Find(&clients).Error
+	query := s.DB.WithContext(ctx).Where("namespace = ?", namespace)
+	if activeOnly {
+		query = query.Where("active = ?", true)
+	}
+	err := query.Find(&clients).Error
 	if err != nil {
 		return nil, err
 	}

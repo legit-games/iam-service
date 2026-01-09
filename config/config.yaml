@@ -7,6 +7,10 @@ database:
     write:
       dsn: "postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable"
 
+valkey:
+  addr: "127.0.0.1:6379"
+  prefix: "iam:"
+
 migrate:
   on_start: true
   driver: "postgres"
