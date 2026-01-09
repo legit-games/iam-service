@@ -14,9 +14,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// seedFS holds embedded SQL seed files in seed/sql.
+// seedFS holds embedded files in seed/sql directory.
+// Uses sql/* pattern to include .gitkeep placeholder when no .sql files exist.
 //
-//go:embed sql/*.sql
+//go:embed sql/*
 var seedFS embed.FS
 
 // Options defines how to run seed migrations.
