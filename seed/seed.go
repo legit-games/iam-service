@@ -34,6 +34,11 @@ func Run(opts Options) error {
 		return nil
 	}
 
+	// Check if there are any valid seed SQL files
+	if !hasValidSeedFiles(opts.Logger) {
+		return nil
+	}
+
 	if opts.Logger != nil {
 		goose.SetLogger(opts.Logger)
 	}
@@ -67,6 +72,39 @@ func Run(opts Options) error {
 	default:
 		return fmt.Errorf("unknown seed command: %s", opts.Command)
 	}
+}
+
+// hasValidSeedFiles checks if there are any valid goose migration files in the seed/sql directory.
+// Valid files must have the format: VERSION_name.sql (e.g., 0001_seed_data.sql)
+func hasValidSeedFiles(logger *log.Logger) bool {
+	entries, err := seedFS.ReadDir("sql")
+	if err != nil {
+		if logger != nil {
+			logger.Println("no seed SQL directory found, skipping seed")
+		}
+		return false
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".sql") {
+			continue
+		}
+		// Check if filename has proper goose format (contains '_' separator after version number)
+		idx := strings.Index(name, "_")
+		if idx > 0 {
+			// Has a valid version prefix
+			return true
+		}
+	}
+
+	if logger != nil {
+		logger.Println("no valid seed SQL files found (files must be named like 0001_name.sql), skipping seed")
+	}
+	return false
 }
 
 // RunFromEnv reads configuration from environment variables and runs seed migrations
