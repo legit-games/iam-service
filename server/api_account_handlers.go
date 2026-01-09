@@ -9,9 +9,10 @@ import (
 )
 
 type CreateHeadAccountRequest struct {
-	AccountID    string `json:"account_id" binding:"required"`
-	Username     string `json:"username" binding:"required"`
-	PasswordHash string `json:"password_hash" binding:"required"`
+	AccountID    string  `json:"account_id" binding:"required"`
+	Username     string  `json:"username" binding:"required"`
+	PasswordHash string  `json:"password_hash" binding:"required"`
+	Email        *string `json:"email"`
 }
 
 func (s *Server) handleCreateHeadAccount(c *gin.Context) {
@@ -20,7 +21,21 @@ func (s *Server) handleCreateHeadAccount(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, errorResponse(err))
 		return
 	}
-	userID, err := s.userStore.CreateHeadAccount(c.Request.Context(), req.AccountID, req.Username, req.PasswordHash)
+
+	// Validate and normalize email if provided
+	var email *string
+	if req.Email != nil {
+		trimmedEmail := strings.TrimSpace(*req.Email)
+		if trimmedEmail != "" {
+			if !isValidEmail(trimmedEmail) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "invalid email format"})
+				return
+			}
+			email = &trimmedEmail
+		}
+	}
+
+	userID, err := s.userStore.CreateHeadAccount(c.Request.Context(), req.AccountID, req.Username, req.PasswordHash, email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return

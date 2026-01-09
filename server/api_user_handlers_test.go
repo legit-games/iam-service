@@ -24,13 +24,15 @@ func TestAPIRegisterUser_Success(t *testing.T) {
 	engine := newRegisterTestEngine(t)
 	// Use a normal, human-readable username with a unique suffix to avoid conflicts
 	uname := uniqueUsername()
-	body := []byte(fmt.Sprintf(`{"username":"%s","password":"P@ssw0rd!"}`, uname))
+	email := fmt.Sprintf("%s@example.com", uname)
+	body := []byte(fmt.Sprintf(`{"username":"%s","password":"P@ssw0rd!","email":"%s"}`, uname, email))
 
 	// Pre-clean: delete user if it somehow exists from previous runs
 	db, err := openTestDB()
 	if err == nil {
 		defer db.Close()
 		_, _ = db.Exec(`DELETE FROM accounts WHERE username=$1`, uname)
+		_, _ = db.Exec(`DELETE FROM accounts WHERE email=$1`, email)
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/iam/v1/public/users", bytes.NewBuffer(body))
