@@ -1,33 +1,163 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Auth</title>
-    <link
-      rel="stylesheet"
-      href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css"
-    />
-    <script src="//code.jquery.com/jquery-2.2.4.min.js"></script>
-    <script src="//maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
-  </head>
-
-  <body>
-    <div class="container">
-      <div class="jumbotron">
-        <form action="/oauth/authorize" method="POST">
-          <h1>Authorize</h1>
-          <p>The client would like to perform actions on your behalf.</p>
-          <p>
-            <button
-              type="submit"
-              class="btn btn-primary btn-lg"
-              style="width:200px;"
-            >
-              Allow
-            </button>
-          </p>
-        </form>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Authorize Application</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .auth-card {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      max-width: 420px;
+      width: 100%;
+      overflow: hidden;
+    }
+    .auth-header {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      padding: 32px 24px;
+      text-align: center;
+    }
+    .auth-icon {
+      width: 64px;
+      height: 64px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+    }
+    .auth-icon svg {
+      width: 32px;
+      height: 32px;
+      fill: white;
+    }
+    .auth-header h1 {
+      color: white;
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .auth-header p {
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 14px;
+    }
+    .auth-body {
+      padding: 24px;
+    }
+    .permissions-section h3 {
+      font-size: 14px;
+      color: #475569;
+      margin-bottom: 12px;
+      font-weight: 600;
+    }
+    .permissions-list {
+      list-style: none;
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 12px 16px;
+      border: 1px solid #e2e8f0;
+      margin-bottom: 24px;
+    }
+    .permissions-list li {
+      padding: 8px 0;
+      color: #334155;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .permissions-list li:last-child {
+      border-bottom: none;
+    }
+    .permissions-list li::before {
+      content: '';
+      width: 8px;
+      height: 8px;
+      background: #22c55e;
+      border-radius: 50%;
+      margin-right: 12px;
+      flex-shrink: 0;
+    }
+    .button-group {
+      display: flex;
+      gap: 12px;
+    }
+    .btn {
+      flex: 1;
+      padding: 14px 24px;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: none;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      color: white;
+    }
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(79, 70, 229, 0.4);
+    }
+    .btn-secondary {
+      background: #f1f5f9;
+      color: #475569;
+    }
+    .btn-secondary:hover {
+      background: #e2e8f0;
+    }
+    .footer-note {
+      text-align: center;
+      margin-top: 16px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+  <div class="auth-card">
+    <div class="auth-header">
+      <div class="auth-icon">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
+        </svg>
       </div>
+      <h1>Authorization Request</h1>
+      <p>An application is requesting access to your account</p>
     </div>
-  </body>
+    <div class="auth-body">
+      <form action="/oauth/authorize" method="POST">
+        <div class="permissions-section">
+          <h3>This application would like to:</h3>
+          <ul class="permissions-list">
+            <li>Access your basic profile information</li>
+            <li>Perform actions on your behalf</li>
+          </ul>
+        </div>
+        <div class="button-group">
+          <button type="button" class="btn btn-secondary" onclick="window.history.back()">Deny</button>
+          <button type="submit" class="btn btn-primary">Authorize</button>
+        </div>
+      </form>
+      <p class="footer-note">By authorizing, you allow this app to access your data.</p>
+    </div>
+  </div>
+</body>
 </html>

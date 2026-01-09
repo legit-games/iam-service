@@ -4,7 +4,6 @@ import {
   DashboardOutlined,
   KeyOutlined,
   UserOutlined,
-  SafetyOutlined,
   CloudOutlined,
 } from '@ant-design/icons';
 
@@ -21,9 +20,19 @@ const menuItems = [
     label: 'Dashboard',
   },
   {
-    key: '/clients',
+    key: 'oauth',
     icon: <KeyOutlined />,
-    label: 'Clients',
+    label: 'OAuth',
+    children: [
+      {
+        key: '/clients',
+        label: 'Clients',
+      },
+      {
+        key: '/roles/clients',
+        label: 'Client Roles',
+      },
+    ],
   },
   {
     key: 'users',
@@ -37,17 +46,6 @@ const menuItems = [
       {
         key: '/bans',
         label: 'Ban Management',
-      },
-    ],
-  },
-  {
-    key: 'roles',
-    icon: <SafetyOutlined />,
-    label: 'Roles',
-    children: [
-      {
-        key: '/roles/clients',
-        label: 'Client Roles',
       },
       {
         key: '/roles/users',
@@ -85,9 +83,9 @@ export default function Sidebar({ collapsed }: SidebarProps) {
 
   // Determine open keys for submenu
   const openKeys: string[] = [];
+  if (location.pathname.startsWith('/clients') || location.pathname.startsWith('/roles/clients')) openKeys.push('oauth');
   if (location.pathname.startsWith('/platforms')) openKeys.push('platforms');
-  if (location.pathname.startsWith('/roles')) openKeys.push('roles');
-  if (location.pathname.startsWith('/users') || location.pathname.startsWith('/bans')) openKeys.push('users');
+  if (location.pathname.startsWith('/users') || location.pathname.startsWith('/bans') || location.pathname.startsWith('/roles/users')) openKeys.push('users');
 
   return (
     <Sider

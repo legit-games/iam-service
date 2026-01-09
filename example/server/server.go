@@ -13,6 +13,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -298,40 +299,318 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get OAuth params from URL query (passed through the login flow)
-	var hiddenFields string
-	if r.URL.RawQuery != "" {
-		params, _ := url.ParseQuery(r.URL.RawQuery)
-		for key, values := range params {
-			for _, val := range values {
-				hiddenFields += fmt.Sprintf(`<input type="hidden" name="%s" value="%s" />`, key, val)
+	// Get OAuth params from URL query or session (passed through the login flow)
+	queryStr := r.URL.RawQuery
+	// If no URL query, try to get from session
+	if queryStr == "" {
+		if v, ok := store.Get("OAuthQuery"); ok {
+			if q, ok := v.(string); ok {
+				queryStr = q
 			}
 		}
 	}
 
-	// Generate dynamic auth page with hidden fields
+	var hiddenFields string
+	var clientID, scopeStr string
+	if queryStr != "" {
+		params, _ := url.ParseQuery(queryStr)
+		for key, values := range params {
+			for _, val := range values {
+				// Skip scope - it will be handled separately via checkboxes
+				if key == "scope" {
+					scopeStr = val
+					continue
+				}
+				hiddenFields += fmt.Sprintf(`<input type="hidden" name="%s" value="%s" />`, key, val)
+				if key == "client_id" {
+					clientID = val
+				}
+			}
+		}
+	}
+
+	// Parse scopes for checkbox display
+	var scopeCheckboxes string
+	if scopeStr != "" {
+		scopes := strings.Split(scopeStr, " ")
+		for i, scope := range scopes {
+			if scope == "" {
+				continue
+			}
+			scopeCheckboxes += fmt.Sprintf(`
+            <label class="scope-item">
+              <input type="checkbox" name="scope_item" value="%s" checked data-index="%d" />
+              <span class="checkmark"></span>
+              <span class="scope-name">%s</span>
+            </label>`, scope, i, scope)
+		}
+	}
+
+	// Generate dynamic auth page with modern design and scope checkboxes
 	html := fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Authorize Application</title>
-  <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .auth-card {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      max-width: 420px;
+      width: 100%%;
+      overflow: hidden;
+    }
+    .auth-header {
+      background: linear-gradient(135deg, #4f46e5 0%%, #7c3aed 100%%);
+      padding: 32px 24px;
+      text-align: center;
+    }
+    .auth-icon {
+      width: 64px;
+      height: 64px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 50%%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+    }
+    .auth-icon svg {
+      width: 32px;
+      height: 32px;
+      fill: white;
+    }
+    .auth-header h1 {
+      color: white;
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .auth-header p {
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 14px;
+    }
+    .auth-body {
+      padding: 24px;
+    }
+    .client-info {
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 20px;
+      border: 1px solid #e2e8f0;
+    }
+    .client-info-label {
+      font-size: 12px;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .client-info-value {
+      font-size: 16px;
+      color: #1e293b;
+      font-weight: 500;
+      word-break: break-all;
+    }
+    .permissions-section h3 {
+      font-size: 14px;
+      color: #475569;
+      margin-bottom: 12px;
+      font-weight: 600;
+    }
+    .permissions-list {
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 8px 16px;
+      border: 1px solid #e2e8f0;
+      margin-bottom: 24px;
+    }
+    .scope-item {
+      display: flex;
+      align-items: center;
+      padding: 10px 0;
+      cursor: pointer;
+      border-bottom: 1px solid #e2e8f0;
+      user-select: none;
+    }
+    .scope-item:last-child {
+      border-bottom: none;
+    }
+    .scope-item input[type="checkbox"] {
+      display: none;
+    }
+    .scope-item .checkmark {
+      width: 20px;
+      height: 20px;
+      border: 2px solid #cbd5e1;
+      border-radius: 4px;
+      margin-right: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      flex-shrink: 0;
+    }
+    .scope-item input[type="checkbox"]:checked + .checkmark {
+      background: #4f46e5;
+      border-color: #4f46e5;
+    }
+    .scope-item input[type="checkbox"]:checked + .checkmark::after {
+      content: '';
+      width: 6px;
+      height: 10px;
+      border: solid white;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+      margin-bottom: 2px;
+    }
+    .scope-item:hover .checkmark {
+      border-color: #4f46e5;
+    }
+    .scope-name {
+      font-size: 14px;
+      color: #334155;
+    }
+    .scope-item input[type="checkbox"]:not(:checked) ~ .scope-name {
+      color: #94a3b8;
+      text-decoration: line-through;
+    }
+    .select-controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .select-btn {
+      font-size: 12px;
+      color: #4f46e5;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+    }
+    .select-btn:hover {
+      text-decoration: underline;
+    }
+    .button-group {
+      display: flex;
+      gap: 12px;
+    }
+    .btn {
+      flex: 1;
+      padding: 14px 24px;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: none;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #4f46e5 0%%, #7c3aed 100%%);
+      color: white;
+    }
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(79, 70, 229, 0.4);
+    }
+    .btn-primary:disabled {
+      background: #cbd5e1;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    .btn-secondary {
+      background: #f1f5f9;
+      color: #475569;
+    }
+    .btn-secondary:hover {
+      background: #e2e8f0;
+    }
+    .footer-note {
+      text-align: center;
+      margin-top: 16px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+  </style>
 </head>
 <body>
-  <div class="container">
-    <div class="jumbotron">
-      <form action="/oauth/authorize" method="POST">
+  <div class="auth-card">
+    <div class="auth-header">
+      <div class="auth-icon">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
+        </svg>
+      </div>
+      <h1>Authorization Request</h1>
+      <p>An application is requesting access to your account</p>
+    </div>
+    <div class="auth-body">
+      <form id="authForm" action="/oauth/authorize" method="POST">
         %s
-        <h1>Authorize</h1>
-        <p>The client would like to perform actions on your behalf.</p>
-        <p>
-          <button type="submit" class="btn btn-primary btn-lg" style="width:200px;">Allow</button>
-        </p>
+        <input type="hidden" id="scopeField" name="scope" value="" />
+        <div class="client-info">
+          <div class="client-info-label">Application</div>
+          <div class="client-info-value">%s</div>
+        </div>
+        <div class="permissions-section">
+          <h3>Requested Permissions</h3>
+          <div class="select-controls">
+            <button type="button" class="select-btn" onclick="selectAll()">Select All</button>
+            <button type="button" class="select-btn" onclick="deselectAll()">Deselect All</button>
+          </div>
+          <div class="permissions-list">
+            %s
+          </div>
+        </div>
+        <div class="button-group">
+          <button type="button" class="btn btn-secondary" onclick="window.history.back()">Deny</button>
+          <button type="submit" id="authorizeBtn" class="btn btn-primary">Authorize</button>
+        </div>
       </form>
+      <p class="footer-note">By authorizing, you allow this app to access your data.</p>
     </div>
   </div>
+  <script>
+    function updateScope() {
+      const checkboxes = document.querySelectorAll('input[name="scope_item"]:checked');
+      const scopes = Array.from(checkboxes).map(cb => cb.value);
+      document.getElementById('scopeField').value = scopes.join(' ');
+      document.getElementById('authorizeBtn').disabled = scopes.length === 0;
+    }
+    function selectAll() {
+      document.querySelectorAll('input[name="scope_item"]').forEach(cb => cb.checked = true);
+      updateScope();
+    }
+    function deselectAll() {
+      document.querySelectorAll('input[name="scope_item"]').forEach(cb => cb.checked = false);
+      updateScope();
+    }
+    document.querySelectorAll('input[name="scope_item"]').forEach(cb => {
+      cb.addEventListener('change', updateScope);
+    });
+    // Initialize scope field on page load
+    updateScope();
+  </script>
 </body>
-</html>`, hiddenFields)
+</html>`, hiddenFields, clientID, scopeCheckboxes)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(html))
