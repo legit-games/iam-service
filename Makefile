@@ -27,7 +27,7 @@ run:
 
 # Convenience: bring DB up, wait, then run server with migrations enabled for Postgres
 dev: db db-wait
-	MIGRATE_ON_START=1 MIGRATE_DRIVER=postgres MIGRATE_DSN=$(REG_DB_DSN_DEFAULT) REG_DB_DSN=$(REG_DB_DSN_DEFAULT) VALKEY_ADDR=$(VALKEY_ADDR_DEFAULT) $(MAKE) run
+	MIGRATE_ON_START=1 MIGRATE_DRIVER=postgres MIGRATE_DSN=$(REG_DB_DSN_DEFAULT) SEED_ON_START=1 REG_DB_DSN=$(REG_DB_DSN_DEFAULT) VALKEY_ADDR=$(VALKEY_ADDR_DEFAULT) $(MAKE) run
 
 # Valkey controls
 valkey:
@@ -179,7 +179,7 @@ admin-embed: admin-build
 dev-admin: kill-server db db-wait migrate-up admin-install
 	@echo "Starting Go server (dev mode) and Vite dev server..."
 	@trap 'kill %1 %2 2>/dev/null' SIGINT SIGTERM; \
-	(MIGRATE_ON_START=1 MIGRATE_DRIVER=postgres MIGRATE_DSN=$(REG_DB_DSN_DEFAULT) REG_DB_DSN=$(REG_DB_DSN_DEFAULT) VALKEY_ADDR=$(VALKEY_ADDR_DEFAULT) go run -tags dev ./example/server) & \
+	(MIGRATE_ON_START=1 MIGRATE_DRIVER=postgres MIGRATE_DSN=$(REG_DB_DSN_DEFAULT) SEED_ON_START=1 REG_DB_DSN=$(REG_DB_DSN_DEFAULT) VALKEY_ADDR=$(VALKEY_ADDR_DEFAULT) go run -tags dev ./example/server) & \
 	(cd admin && npm run dev) & \
 	wait
 
