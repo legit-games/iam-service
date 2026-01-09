@@ -11,6 +11,7 @@ const { Sider } = Layout;
 
 interface SidebarProps {
   collapsed: boolean;
+  onMenuClick?: () => void;
 }
 
 const menuItems = [
@@ -70,12 +71,13 @@ const menuItems = [
   },
 ];
 
-export default function Sidebar({ collapsed }: SidebarProps) {
+export default function Sidebar({ collapsed, onMenuClick }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
 
   const handleMenuClick = ({ key }: { key: string }) => {
     navigate(key);
+    onMenuClick?.();
   };
 
   // Determine selected key
