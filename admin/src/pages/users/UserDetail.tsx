@@ -1,14 +1,16 @@
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { Card, Descriptions, Button, Tag, Space, Empty, Spin, Alert } from 'antd';
-import { ArrowLeftOutlined, StopOutlined, HistoryOutlined, SaveOutlined } from '@ant-design/icons';
+import { Card, Descriptions, Button, Tag, Space, Empty, Spin, Alert, Table } from 'antd';
+import { ArrowLeftOutlined, StopOutlined, HistoryOutlined, SaveOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
+import type { ColumnsType } from 'antd/es/table';
 import BanModal from '../../components/BanModal';
 import PermissionEditor from '../../components/PermissionEditor';
 import { useNamespaceContext } from '../../hooks/useNamespaceContext';
 import { useBanUser, useUserBans } from '../../hooks/useBans';
 import { useUserPlatforms } from '../../hooks/usePlatforms';
-import { useUser, useUserPermissions, useUpdateUserPermissions } from '../../hooks/useUsers';
+import { useUser, useUserPermissions, useUpdateUserPermissions, useLoginHistory } from '../../hooks/useUsers';
 import type { SearchType } from '../../api/users';
+import type { LoginHistory } from '../../api/types';
 
 export default function UserDetail() {
   const { id } = useParams<{ id: string }>();
@@ -39,6 +41,7 @@ export default function UserDetail() {
   const banMutation = useBanUser(currentNamespace || '');
   const { data: userPermissions, isLoading: permissionsLoading } = useUserPermissions(id || '');
   const updatePermissionsMutation = useUpdateUserPermissions(id || '');
+  const { data: loginHistory = [], isLoading: loginHistoryLoading } = useLoginHistory(user?.account_id || '', 10);
 
   // Sync permissions state when data is loaded
   useEffect(() => {
@@ -163,6 +166,9 @@ export default function UserDetail() {
           <Descriptions.Item label="Status">
             <Tag color={user.orphaned ? 'red' : 'green'}>{user.orphaned ? 'Orphaned' : 'Active'}</Tag>
           </Descriptions.Item>
+          <Descriptions.Item label="Account ID">
+            <code>{user.account_id}</code>
+          </Descriptions.Item>
         </Descriptions>
       </Card>
 
@@ -210,6 +216,50 @@ export default function UserDetail() {
           ))
         ) : (
           <Empty description="No active bans" />
+        )}
+      </Card>
+
+      <Card title="Login History" style={{ marginBottom: 16 }} loading={loginHistoryLoading}>
+        {loginHistory.length > 0 ? (
+          <Table
+            dataSource={loginHistory}
+            rowKey="id"
+            pagination={false}
+            size="small"
+            columns={[
+              {
+                title: 'Time',
+                dataIndex: 'login_at',
+                key: 'login_at',
+                render: (date: string) => new Date(date).toLocaleString(),
+              },
+              {
+                title: 'Status',
+                dataIndex: 'success',
+                key: 'success',
+                render: (success: boolean) => success ? (
+                  <Tag icon={<CheckCircleOutlined />} color="success">Success</Tag>
+                ) : (
+                  <Tag icon={<CloseCircleOutlined />} color="error">Failed</Tag>
+                ),
+              },
+              {
+                title: 'IP Address',
+                dataIndex: 'ip_address',
+                key: 'ip_address',
+                render: (ip: string) => ip || '-',
+              },
+              {
+                title: 'User Agent',
+                dataIndex: 'user_agent',
+                key: 'user_agent',
+                ellipsis: true,
+                render: (ua: string) => ua || '-',
+              },
+            ] as ColumnsType<LoginHistory>}
+          />
+        ) : (
+          <Empty description="No login history" />
         )}
       </Card>
 

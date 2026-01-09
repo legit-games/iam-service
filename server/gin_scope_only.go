@@ -56,6 +56,7 @@ func NewGinEngineWithScopeAuth(s *Server) *gin.Engine {
 	r.POST("/iam/v1/admin/accounts/:id/ban", s.RequireAnyScope(ScopeAccountAdmin, ScopeAdmin), s.HandleBanAccountGin)
 	r.POST("/iam/v1/admin/accounts/:id/unban", s.RequireAnyScope(ScopeAccountAdmin, ScopeAdmin), s.HandleUnbanAccountGin)
 	r.GET("/iam/v1/admin/accounts/:id/bans", s.RequireAnyScope(ScopeAccountRead, ScopeAdmin), s.HandleListAccountBansGin)
+	r.GET("/iam/v1/admin/accounts/:id/login-history", s.RequireAnyScope(ScopeAccountRead, ScopeAdmin), s.HandleListLoginHistoryGin)
 
 	// Client Management
 	r.GET("/iam/v1/admin/clients/:id", s.RequireAnyScope(ScopeClientRead, ScopeAdmin), s.HandleGetClientGin)

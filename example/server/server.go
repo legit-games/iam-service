@@ -261,6 +261,20 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 			sessionStore.Set("LoggedInUserID", userID)
 			sessionStore.Save()
 
+			// Record login history
+			if globalSrv != nil {
+				if db, err := globalSrv.GetPrimaryDB(); err == nil && db != nil {
+					loginID := models.LegitID()
+					ipAddress := r.RemoteAddr
+					if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+						ipAddress = strings.Split(xff, ",")[0]
+					}
+					userAgent := r.Header.Get("User-Agent")
+					db.Exec("INSERT INTO login_history (id, account_id, ip_address, user_agent, success) VALUES (?, ?, ?, ?, ?)",
+						loginID, userID, ipAddress, userAgent, true)
+				}
+			}
+
 			// Pass OAuth params to /auth via URL query
 			oauthQuery := ""
 			if v, ok := sessionStore.Get("OAuthQuery"); ok {

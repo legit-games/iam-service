@@ -1,5 +1,5 @@
 import apiClient from './client';
-import { Account, User } from './types';
+import { Account, User, LoginHistory } from './types';
 
 export type SearchType = 'user_id' | 'account_id' | 'username';
 
@@ -81,4 +81,8 @@ export const userApi = {
   // Remove permissions from user
   removeUserPermissions: (userId: string, permissions: string[]) =>
     apiClient.delete<{ user_id: string; permissions: string[] }>(`/iam/v1/admin/users/${userId}/permissions`, { data: { permissions } }),
+
+  // Get login history for an account
+  getLoginHistory: (accountId: string, params?: { limit?: number; offset?: number }) =>
+    apiClient.get<{ login_history: LoginHistory[]; count: number }>(`/iam/v1/admin/accounts/${accountId}/login-history`, { params }),
 };
