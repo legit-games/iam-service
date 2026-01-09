@@ -202,3 +202,157 @@ body {
   color: #8c8c8c;
   font-size: 14px;
 }
+
+/* ================================
+   Responsive Styles
+   ================================ */
+
+/* Make tables horizontally scrollable on mobile */
+.ant-table-wrapper {
+  overflow-x: auto;
+}
+
+.ant-table {
+  min-width: 600px;
+}
+
+/* Mobile styles (max-width: 768px) */
+@media (max-width: 768px) {
+  .login-card {
+    width: 90%;
+    max-width: 400px;
+    padding: 24px;
+    margin: 16px;
+  }
+
+  .login-card h1 {
+    font-size: 24px;
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .page-header h1 {
+    font-size: 20px;
+  }
+
+  .dashboard-stats {
+    grid-template-columns: 1fr;
+  }
+
+  /* Namespace select page */
+  .namespace-select-container {
+    padding: 20px 16px;
+  }
+
+  .namespace-select-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .namespace-select-header h1 {
+    font-size: 22px;
+  }
+
+  .namespace-item {
+    padding: 10px 12px;
+  }
+
+  .namespace-item-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 12px;
+  }
+
+  .namespace-item-name {
+    font-size: 14px;
+  }
+
+  .namespace-item-id {
+    font-size: 12px;
+  }
+
+  /* Ant Design component overrides */
+  .ant-modal {
+    max-width: calc(100vw - 32px) !important;
+    margin: 16px auto !important;
+  }
+
+  .ant-modal .ant-modal-body {
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
+  .ant-form-item-label {
+    padding-bottom: 4px !important;
+  }
+
+  .ant-descriptions-item-label,
+  .ant-descriptions-item-content {
+    padding: 8px 12px !important;
+  }
+
+  .ant-card {
+    margin-bottom: 12px;
+  }
+
+  .ant-card-body {
+    padding: 16px;
+  }
+
+  .ant-space {
+    flex-wrap: wrap;
+  }
+
+  .ant-btn {
+    padding: 4px 12px;
+  }
+
+  /* Table adjustments */
+  .ant-table {
+    min-width: 500px;
+  }
+
+  .ant-table-thead > tr > th,
+  .ant-table-tbody > tr > td {
+    padding: 8px !important;
+    font-size: 13px;
+  }
+
+  .ant-tag {
+    margin: 2px;
+    font-size: 11px;
+  }
+}
+
+/* Small mobile styles (max-width: 480px) */
+@media (max-width: 480px) {
+  .login-card {
+    padding: 20px;
+  }
+
+  .page-header h1 {
+    font-size: 18px;
+  }
+
+  .ant-table {
+    min-width: 400px;
+  }
+
+  .ant-btn > span {
+    display: none;
+  }
+
+  .ant-btn > .anticon {
+    margin-right: 0;
+  }
+
+  .ant-btn > .anticon + span {
+    display: inline;
+    margin-left: 4px;
+  }
+}
