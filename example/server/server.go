@@ -218,9 +218,13 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Store OAuth params from URL query in session for later use
+	// Don't overwrite OAuth params with error params (from failed login redirect)
 	if r.URL.RawQuery != "" && r.Method == "GET" {
-		sessionStore.Set("OAuthQuery", r.URL.RawQuery)
-		sessionStore.Save()
+		params, _ := url.ParseQuery(r.URL.RawQuery)
+		if params.Get("error") == "" {
+			sessionStore.Set("OAuthQuery", r.URL.RawQuery)
+			sessionStore.Save()
+		}
 	}
 
 	if r.Method == "POST" {
@@ -290,7 +294,16 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusFound)
 			return
 		} else {
-			http.Error(w, "Invalid username or password", http.StatusUnauthorized)
+			// Redirect to login page with error message, preserving OAuth params
+			redirectURL := "/login?error=invalid_credentials&error_description=" + url.QueryEscape("Invalid username or password")
+			// Preserve OAuth params so the flow can continue after successful login
+			if v, ok := sessionStore.Get("OAuthQuery"); ok {
+				if q, ok := v.(string); ok && q != "" {
+					redirectURL += "&" + q
+				}
+			}
+			w.Header().Set("Location", redirectURL)
+			w.WriteHeader(http.StatusFound)
 			return
 		}
 	}
