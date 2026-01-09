@@ -1,11 +1,15 @@
 # Go build artifacts
 bin/
+oauth2-server
 *.exe
 *.dll
 *.so
 *.dylib
 *.test
 *.out
+
+# Frontend build artifacts
+server/admin/dist/
 
 # Go module/vendor
 vendor/

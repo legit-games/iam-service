@@ -32,6 +32,9 @@
       padding: 32px 24px;
       text-align: center;
     }
+    .login-header.error {
+      background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+    }
     .login-icon {
       width: 64px;
       height: 64px;
@@ -60,6 +63,40 @@
     .login-body {
       padding: 32px 24px;
     }
+    .error-box {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    .error-box .error-title {
+      color: #dc2626;
+      font-weight: 600;
+      font-size: 15px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .error-box .error-title svg {
+      width: 20px;
+      height: 20px;
+      fill: #dc2626;
+    }
+    .error-box .error-message {
+      color: #991b1b;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    .error-box .error-suggestions {
+      color: #7f1d1d;
+      font-size: 13px;
+      padding-left: 20px;
+    }
+    .error-box .error-suggestions li {
+      margin-bottom: 4px;
+    }
     .form-group {
       margin-bottom: 20px;
     }
@@ -84,6 +121,9 @@
       border-color: #4f46e5;
       box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
     }
+    .form-group input.error {
+      border-color: #dc2626;
+    }
     .form-group input::placeholder {
       color: #9ca3af;
     }
@@ -106,6 +146,26 @@
     .btn-login:active {
       transform: translateY(0);
     }
+    .btn-secondary {
+      width: 100%;
+      padding: 12px 24px;
+      background: white;
+      color: #4f46e5;
+      border: 2px solid #e5e7eb;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      margin-top: 12px;
+      text-decoration: none;
+      display: block;
+      text-align: center;
+    }
+    .btn-secondary:hover {
+      border-color: #4f46e5;
+      background: #f5f3ff;
+    }
     .footer-note {
       text-align: center;
       margin-top: 24px;
@@ -120,21 +180,41 @@
     .footer-note a:hover {
       text-decoration: underline;
     }
+    .hidden {
+      display: none;
+    }
   </style>
 </head>
 <body>
   <div class="login-card">
-    <div class="login-header">
-      <div class="login-icon">
-        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <div class="login-header" id="loginHeader">
+      <div class="login-icon" id="loginIcon">
+        <svg id="userIcon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
         </svg>
+        <svg id="errorIcon" class="hidden" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+        </svg>
       </div>
-      <h1>Welcome Back</h1>
-      <p>Sign in to continue to your account</p>
+      <h1 id="headerTitle">Welcome Back</h1>
+      <p id="headerSubtitle">Sign in to continue to your account</p>
     </div>
     <div class="login-body">
-      <form action="/login" method="POST">
+      <div class="error-box hidden" id="errorBox">
+        <div class="error-title">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+          </svg>
+          <span id="errorTitle">Authentication Failed</span>
+        </div>
+        <p class="error-message" id="errorMessage">Invalid username or password</p>
+        <ul class="error-suggestions" id="errorSuggestions">
+          <li>Check that your username is spelled correctly</li>
+          <li>Make sure Caps Lock is not enabled</li>
+          <li>If you forgot your password, contact an administrator</li>
+        </ul>
+      </div>
+      <form action="/login" method="POST" id="loginForm">
         <div class="form-group">
           <label for="username">Username</label>
           <input type="text" id="username" name="username" required placeholder="Enter your username" autocomplete="username">
@@ -145,8 +225,84 @@
         </div>
         <button type="submit" class="btn-login">Sign In</button>
       </form>
+      <a href="mailto:admin@example.com?subject=Login%20Issue" class="btn-secondary hidden" id="contactAdmin">Contact Administrator</a>
       <p class="footer-note">OAuth 2.0 Authorization Server</p>
     </div>
   </div>
+  <script>
+    (function() {
+      const params = new URLSearchParams(window.location.search);
+      const error = params.get('error');
+      const errorDesc = params.get('error_description');
+
+      if (error || errorDesc) {
+        const header = document.getElementById('loginHeader');
+        const userIcon = document.getElementById('userIcon');
+        const errorIcon = document.getElementById('errorIcon');
+        const headerTitle = document.getElementById('headerTitle');
+        const headerSubtitle = document.getElementById('headerSubtitle');
+        const errorBox = document.getElementById('errorBox');
+        const errorTitleEl = document.getElementById('errorTitle');
+        const errorMessage = document.getElementById('errorMessage');
+        const errorSuggestions = document.getElementById('errorSuggestions');
+        const contactAdmin = document.getElementById('contactAdmin');
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+
+        header.classList.add('error');
+        userIcon.classList.add('hidden');
+        errorIcon.classList.remove('hidden');
+        errorBox.classList.remove('hidden');
+        usernameInput.classList.add('error');
+        passwordInput.classList.add('error');
+
+        const lowerError = ((error || '') + ' ' + (errorDesc || '')).toLowerCase();
+
+        if (lowerError.includes('ban') || lowerError.includes('suspend')) {
+          headerTitle.textContent = 'Account Suspended';
+          headerSubtitle.textContent = 'Your account has been suspended';
+          errorTitleEl.textContent = 'Account Suspended';
+          errorMessage.textContent = errorDesc || 'Your account has been suspended and cannot access this service.';
+          errorSuggestions.innerHTML = `
+            <li>Your account may have violated our terms of service</li>
+            <li>The suspension may be temporary or permanent</li>
+            <li>Contact an administrator for more information</li>
+          `;
+          contactAdmin.classList.remove('hidden');
+        } else if (lowerError.includes('invalid') || lowerError.includes('password') || lowerError.includes('credential')) {
+          headerTitle.textContent = 'Sign In Failed';
+          headerSubtitle.textContent = 'Please check your credentials';
+          errorTitleEl.textContent = 'Invalid Credentials';
+          errorMessage.textContent = errorDesc || 'The username or password you entered is incorrect.';
+          errorSuggestions.innerHTML = `
+            <li>Check that your username is spelled correctly</li>
+            <li>Make sure Caps Lock is not enabled</li>
+            <li>Verify your password is correct</li>
+          `;
+        } else if (lowerError.includes('access') || lowerError.includes('denied') || lowerError.includes('permission')) {
+          headerTitle.textContent = 'Access Denied';
+          headerSubtitle.textContent = 'You do not have permission';
+          errorTitleEl.textContent = 'Access Denied';
+          errorMessage.textContent = errorDesc || 'You do not have permission to access this resource.';
+          errorSuggestions.innerHTML = `
+            <li>Your account may not have the required privileges</li>
+            <li>Required scopes may not be granted to your account</li>
+            <li>Contact an administrator to request access</li>
+          `;
+          contactAdmin.classList.remove('hidden');
+        } else {
+          headerTitle.textContent = 'Sign In Failed';
+          headerSubtitle.textContent = 'An error occurred';
+          errorTitleEl.textContent = 'Authentication Error';
+          errorMessage.textContent = errorDesc || error || 'An unexpected error occurred during sign in.';
+          errorSuggestions.innerHTML = `
+            <li>Please try signing in again</li>
+            <li>If the problem persists, contact an administrator</li>
+          `;
+          contactAdmin.classList.remove('hidden');
+        }
+      }
+    })();
+  </script>
 </body>
 </html>
