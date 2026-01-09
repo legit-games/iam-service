@@ -399,3 +399,27 @@ func (s *UserStore) GetSignupStats(ctx context.Context, namespace string) (*mode
 
 	return stats, nil
 }
+
+// UpdateAccountEmailIfEmpty updates the account's email only if it's currently NULL.
+// This is used to populate email from platform providers (e.g., Google) during login.
+func (s *UserStore) UpdateAccountEmailIfEmpty(ctx context.Context, accountID string, email string) error {
+	if accountID == "" || email == "" {
+		return nil
+	}
+	return s.DB.WithContext(ctx).Exec(
+		`UPDATE accounts SET email = ? WHERE id = ? AND email IS NULL`,
+		email, accountID,
+	).Error
+}
+
+// UpdateAccountCountryIfEmpty updates the account's country only if it's currently NULL.
+// This is used to populate country from IP geolocation during login.
+func (s *UserStore) UpdateAccountCountryIfEmpty(ctx context.Context, accountID string, country string) error {
+	if accountID == "" || country == "" {
+		return nil
+	}
+	return s.DB.WithContext(ctx).Exec(
+		`UPDATE accounts SET country = ? WHERE id = ? AND country IS NULL`,
+		country, accountID,
+	).Error
+}

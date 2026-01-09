@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-oauth2/oauth2/v4"
 	"github.com/go-oauth2/oauth2/v4/dto"
+	"github.com/go-oauth2/oauth2/v4/geoip"
 	"github.com/go-oauth2/oauth2/v4/models"
 	"github.com/go-oauth2/oauth2/v4/platforms"
 	"github.com/go-oauth2/oauth2/v4/store"
@@ -544,13 +545,26 @@ func (s *Server) HandlePlatformAuthenticateGin(c *gin.Context) {
 		return
 	}
 
+	// Get client IP and lookup country for new accounts
+	clientIP := geoip.GetClientIP(c.Request)
+	geoClient := geoip.NewClient()
+	countryCode := geoClient.LookupCountry(c.Request.Context(), clientIP)
+
 	var userID string
+	userStore := store.NewUserStore(db)
 	if existingPlatformUser != nil {
 		// User already linked, use existing user ID
 		userID = existingPlatformUser.UserID
+
+		// Update account email and country from platform if empty
+		if platformUserInfo.Email != "" {
+			_ = userStore.UpdateAccountEmailIfEmpty(c.Request.Context(), userID, platformUserInfo.Email)
+		}
+		if countryCode != "" {
+			_ = userStore.UpdateAccountCountryIfEmpty(c.Request.Context(), userID, countryCode)
+		}
 	} else {
 		// Create new headless account for the platform user
-		userStore := store.NewUserStore(db)
 		accountID := models.LegitID()
 
 		err = userStore.CreateHeadlessAccount(c.Request.Context(), accountID, authRequest.Namespace, platformID, platformUserInfo.PlatformUserID)
@@ -560,6 +574,14 @@ func (s *Server) HandlePlatformAuthenticateGin(c *gin.Context) {
 		}
 
 		userID = accountID
+
+		// Update account email and country from platform
+		if platformUserInfo.Email != "" {
+			_ = userStore.UpdateAccountEmailIfEmpty(c.Request.Context(), accountID, platformUserInfo.Email)
+		}
+		if countryCode != "" {
+			_ = userStore.UpdateAccountCountryIfEmpty(c.Request.Context(), accountID, countryCode)
+		}
 
 		// Create platform user link
 		newPlatformUser := &models.PlatformUser{
@@ -816,11 +838,25 @@ func (s *Server) HandlePlatformTokenGin(c *gin.Context) {
 		return
 	}
 
+	// Get client IP and lookup country for new accounts
+	clientIP := geoip.GetClientIP(c.Request)
+	geoClient := geoip.NewClient()
+	countryCode := geoClient.LookupCountry(c.Request.Context(), clientIP)
+
 	var userID string
+	userStore := store.NewUserStore(db)
 
 	if linkedAccount != nil {
 		// Account is already linked
 		userID = linkedAccount.UserID
+
+		// Update account email and country from platform if empty
+		if platformUserInfo.Email != "" {
+			_ = userStore.UpdateAccountEmailIfEmpty(c.Request.Context(), userID, platformUserInfo.Email)
+		}
+		if countryCode != "" {
+			_ = userStore.UpdateAccountCountryIfEmpty(c.Request.Context(), userID, countryCode)
+		}
 	} else {
 		// Account not linked
 		if !req.GetCreateHeadless() {
@@ -837,7 +873,6 @@ func (s *Server) HandlePlatformTokenGin(c *gin.Context) {
 		}
 
 		// Create headless account
-		userStore := store.NewUserStore(db)
 		accountID := models.LegitID()
 		err = userStore.CreateHeadlessAccount(c.Request.Context(), accountID, namespace, platformID, platformUserInfo.PlatformUserID)
 		if err != nil {
@@ -846,6 +881,14 @@ func (s *Server) HandlePlatformTokenGin(c *gin.Context) {
 				ErrorDescription: "unable to create account",
 			})
 			return
+		}
+
+		// Update account email and country from platform
+		if platformUserInfo.Email != "" {
+			_ = userStore.UpdateAccountEmailIfEmpty(c.Request.Context(), accountID, platformUserInfo.Email)
+		}
+		if countryCode != "" {
+			_ = userStore.UpdateAccountCountryIfEmpty(c.Request.Context(), accountID, countryCode)
 		}
 
 		// Create platform user link
@@ -870,7 +913,6 @@ func (s *Server) HandlePlatformTokenGin(c *gin.Context) {
 	}
 
 	// Step 7: Check for user bans
-	userStore := store.NewUserStore(db)
 	banned, err := userStore.IsUserBannedByAccount(c.Request.Context(), userID, namespace)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.PlatformTokenErrorResponse{
