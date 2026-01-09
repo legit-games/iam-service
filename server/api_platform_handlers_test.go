@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -326,15 +327,28 @@ func TestHandlePlatformAuthenticate_MissingParams(t *testing.T) {
 	ts := httptest.NewServer(router)
 	defer ts.Close()
 
-	e := httpexpect.Default(t, ts.URL)
+	e := httpexpect.WithConfig(httpexpect.Config{
+		BaseURL:  ts.URL,
+		Reporter: httpexpect.NewRequireReporter(t),
+		Client: &http.Client{
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse // Don't follow redirects
+			},
+		},
+	})
 
-	// Missing code and state
-	e.GET("/iam/v1/platforms/google/authenticate").
+	// Missing code and state - should redirect to /login with error
+	resp := e.GET("/iam/v1/platforms/google/authenticate").
 		Expect().
-		Status(http.StatusBadRequest).
-		JSON().Object().
-		ValueEqual("error", "invalid_request").
-		ValueEqual("error_description", "missing required parameters")
+		Status(http.StatusFound)
+
+	location := resp.Header("Location").Raw()
+	if !strings.Contains(location, "error=invalid_request") {
+		t.Errorf("expected Location to contain 'error=invalid_request', got: %s", location)
+	}
+	if !strings.Contains(location, "missing+required+parameters") {
+		t.Errorf("expected Location to contain error description, got: %s", location)
+	}
 }
 
 func TestHandlePlatformAuthenticate_PlatformError(t *testing.T) {
@@ -347,17 +361,30 @@ func TestHandlePlatformAuthenticate_PlatformError(t *testing.T) {
 	ts := httptest.NewServer(router)
 	defer ts.Close()
 
-	e := httpexpect.Default(t, ts.URL)
+	e := httpexpect.WithConfig(httpexpect.Config{
+		BaseURL:  ts.URL,
+		Reporter: httpexpect.NewRequireReporter(t),
+		Client: &http.Client{
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse // Don't follow redirects
+			},
+		},
+	})
 
-	// Platform returns error (e.g., user denied access)
-	e.GET("/iam/v1/platforms/google/authenticate").
+	// Platform returns error (e.g., user denied access) - should redirect to /login with error
+	resp := e.GET("/iam/v1/platforms/google/authenticate").
 		WithQuery("error", "access_denied").
 		WithQuery("error_description", "user denied access").
 		Expect().
-		Status(http.StatusBadRequest).
-		JSON().Object().
-		ValueEqual("error", "access_denied").
-		ValueEqual("error_description", "user denied access")
+		Status(http.StatusFound)
+
+	location := resp.Header("Location").Raw()
+	if !strings.Contains(location, "error=access_denied") {
+		t.Errorf("expected Location to contain 'error=access_denied', got: %s", location)
+	}
+	if !strings.Contains(location, "user+denied+access") {
+		t.Errorf("expected Location to contain error description, got: %s", location)
+	}
 }
 
 // Tests for POST /iam/v1/oauth/platforms/:platformId/token
