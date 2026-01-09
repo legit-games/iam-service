@@ -116,6 +116,9 @@ func NewGinEngine(s *Server) *gin.Engine {
 	adminGroup.GET("/oauth/admin/namespaces/:ns/users/:userId/platforms/:platformId/platformToken", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER:{userId}", permission.READ), s.HandleGetPlatformTokenGin)
 	adminGroup.GET("/oauth/admin/namespaces/:ns/users/:userId/platforms", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER:{userId}", permission.READ), s.HandleListPlatformAccountsGin)
 
+	// Platform user search (admin)
+	adminGroup.GET("/admin/namespaces/:ns/platform-users/search", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:PLATFORM", permission.READ), s.HandleSearchPlatformAccountsGin)
+
 	// Platform client configuration (admin)
 	adminGroup.GET("/admin/namespaces/:ns/platform-clients", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:PLATFORM", permission.READ), s.HandleListPlatformClientsGin)
 	adminGroup.GET("/admin/namespaces/:ns/platform-clients/:platformId", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopePlatformRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:PLATFORM", permission.READ), s.HandleGetPlatformClientGin)

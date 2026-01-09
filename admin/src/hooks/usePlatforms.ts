@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { platformApi } from '../api/platforms';
-import { PlatformClient } from '../api/types';
+import { PlatformClient, PlatformUserSearchParams } from '../api/types';
 
 export const PLATFORMS_KEY = ['platforms'];
 
@@ -9,6 +9,14 @@ export function useUserPlatforms(namespace: string, userId: string) {
     queryKey: [...PLATFORMS_KEY, 'users', namespace, userId],
     queryFn: () => platformApi.listUserPlatforms(namespace, userId).then((r) => r.data.platforms || []),
     enabled: !!namespace && !!userId,
+  });
+}
+
+export function useSearchPlatformUsers(namespace: string, params: PlatformUserSearchParams, enabled = true) {
+  return useQuery({
+    queryKey: [...PLATFORMS_KEY, 'search', namespace, params],
+    queryFn: () => platformApi.searchPlatformUsers(namespace, params).then((r) => r.data),
+    enabled: !!namespace && enabled,
   });
 }
 

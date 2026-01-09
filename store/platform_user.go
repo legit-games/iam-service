@@ -103,3 +103,122 @@ func (s *PlatformUserStore) ListPlatformAccountsByUser(ctx context.Context, name
 	}
 	return accounts, nil
 }
+
+// PlatformUserSearchParams holds search parameters for platform accounts.
+type PlatformUserSearchParams struct {
+	PlatformID     string     // Filter by platform ID (exact match)
+	PlatformUserID string     // Filter by platform user ID (partial match)
+	CreatedFrom    *time.Time // Filter by created_at >= value
+	CreatedTo      *time.Time // Filter by created_at <= value
+	Offset         int        // Pagination offset
+	Limit          int        // Pagination limit (default 20, max 100)
+}
+
+// PlatformUserWithUserID extends PlatformUser with the actual user_id from account_users table.
+type PlatformUserWithUserID struct {
+	models.PlatformUser
+	AccountID  string `json:"account_id"`  // The account_id (stored in platform_users.user_id)
+	ActualUserID string `json:"actual_user_id"` // The actual user_id from account_users table
+}
+
+// PlatformUserSearchResult holds search results with pagination info.
+type PlatformUserSearchResult struct {
+	Data   []PlatformUserWithUserID `json:"data"`
+	Total  int64                    `json:"total"`
+	Offset int                      `json:"offset"`
+	Limit  int                      `json:"limit"`
+}
+
+// SearchPlatformAccounts searches platform accounts with filters and pagination.
+func (s *PlatformUserStore) SearchPlatformAccounts(ctx context.Context, namespace string, params *PlatformUserSearchParams) (*PlatformUserSearchResult, error) {
+	query := s.DB.WithContext(ctx).Model(&models.PlatformUser{}).Where("platform_users.namespace = ?", namespace)
+
+	// Apply filters
+	if params.PlatformID != "" {
+		query = query.Where("platform_users.platform_id = ?", params.PlatformID)
+	}
+	if params.PlatformUserID != "" {
+		query = query.Where("platform_users.platform_user_id ILIKE ?", "%"+params.PlatformUserID+"%")
+	}
+	if params.CreatedFrom != nil {
+		query = query.Where("platform_users.created_at >= ?", *params.CreatedFrom)
+	}
+	if params.CreatedTo != nil {
+		query = query.Where("platform_users.created_at <= ?", *params.CreatedTo)
+	}
+
+	// Get total count
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, err
+	}
+
+	// Apply pagination
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := params.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Fetch results with LEFT JOIN to get actual user_id from account_users
+	type resultRow struct {
+		models.PlatformUser
+		ActualUserID *string `gorm:"column:actual_user_id"`
+	}
+	var rows []resultRow
+	err := s.DB.WithContext(ctx).
+		Table("platform_users").
+		Select("platform_users.*, account_users.user_id as actual_user_id").
+		Joins("LEFT JOIN account_users ON platform_users.user_id = account_users.account_id").
+		Where("platform_users.namespace = ?", namespace).
+		Scopes(func(db *gorm.DB) *gorm.DB {
+			if params.PlatformID != "" {
+				db = db.Where("platform_users.platform_id = ?", params.PlatformID)
+			}
+			if params.PlatformUserID != "" {
+				db = db.Where("platform_users.platform_user_id ILIKE ?", "%"+params.PlatformUserID+"%")
+			}
+			if params.CreatedFrom != nil {
+				db = db.Where("platform_users.created_at >= ?", *params.CreatedFrom)
+			}
+			if params.CreatedTo != nil {
+				db = db.Where("platform_users.created_at <= ?", *params.CreatedTo)
+			}
+			return db
+		}).
+		Order("platform_users.created_at DESC").
+		Offset(offset).
+		Limit(limit).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to result format
+	data := make([]PlatformUserWithUserID, len(rows))
+	for i, row := range rows {
+		data[i] = PlatformUserWithUserID{
+			PlatformUser: row.PlatformUser,
+			AccountID:    row.PlatformUser.UserID, // platform_users.user_id is actually account_id
+			ActualUserID: "",
+		}
+		if row.ActualUserID != nil {
+			data[i].ActualUserID = *row.ActualUserID
+		}
+		// Clear the misleading user_id field and set it to actual user_id
+		data[i].PlatformUser.UserID = data[i].ActualUserID
+	}
+
+	return &PlatformUserSearchResult{
+		Data:   data,
+		Total:  total,
+		Offset: offset,
+		Limit:  limit,
+	}, nil
+}

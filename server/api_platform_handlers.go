@@ -230,6 +230,100 @@ func (s *Server) HandleListPlatformAccountsGin(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"platforms": accounts})
 }
 
+// HandleSearchPlatformAccountsGin searches platform accounts with filters and pagination.
+// Route: GET /iam/v1/admin/namespaces/:ns/platform-users/search
+func (s *Server) HandleSearchPlatformAccountsGin(c *gin.Context) {
+	namespace := strings.ToUpper(strings.TrimSpace(c.Param("ns")))
+	if namespace == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_request",
+			"error_description": "namespace is required",
+		})
+		return
+	}
+
+	// Parse query parameters
+	platformID := strings.ToLower(strings.TrimSpace(c.Query("platform_id")))
+	platformUserID := strings.TrimSpace(c.Query("platform_user_id"))
+	createdFrom := strings.TrimSpace(c.Query("created_from"))
+	createdTo := strings.TrimSpace(c.Query("created_to"))
+
+	// Parse pagination
+	offset := 0
+	if offsetStr := c.Query("offset"); offsetStr != "" {
+		if v, err := parseInt(offsetStr); err == nil && v >= 0 {
+			offset = v
+		}
+	}
+	limit := 20
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if v, err := parseInt(limitStr); err == nil && v > 0 {
+			limit = v
+		}
+	}
+
+	// Parse dates
+	var createdFromTime, createdToTime *time.Time
+	if createdFrom != "" {
+		if t, err := time.Parse("2006-01-02", createdFrom); err == nil {
+			createdFromTime = &t
+		} else if t, err := time.Parse(time.RFC3339, createdFrom); err == nil {
+			createdFromTime = &t
+		}
+	}
+	if createdTo != "" {
+		if t, err := time.Parse("2006-01-02", createdTo); err == nil {
+			// Set to end of day
+			endOfDay := t.Add(24*time.Hour - time.Second)
+			createdToTime = &endOfDay
+		} else if t, err := time.Parse(time.RFC3339, createdTo); err == nil {
+			createdToTime = &t
+		}
+	}
+
+	db, err := s.GetIAMReadDB()
+	if err != nil {
+		if err == ErrUserDBDSNNotSet {
+			c.JSON(http.StatusNotImplemented, gin.H{
+				"error":             "not_implemented",
+				"error_description": "database not configured",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to connect to database",
+		})
+		return
+	}
+
+	platformUserStore := store.NewPlatformUserStore(db)
+	result, err := platformUserStore.SearchPlatformAccounts(c.Request.Context(), namespace, &store.PlatformUserSearchParams{
+		PlatformID:     platformID,
+		PlatformUserID: platformUserID,
+		CreatedFrom:    createdFromTime,
+		CreatedTo:      createdToTime,
+		Offset:         offset,
+		Limit:          limit,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "server_error",
+			"error_description": "unable to search platform accounts",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// parseInt parses a string to int, ignoring errors and returning 0 on failure.
+func parseInt(s string) (int, error) {
+	var v int
+	_, err := fmt.Sscanf(s, "%d", &v)
+	return v, err
+}
+
 // HandlePlatformAuthorizeGin initiates OAuth authorization flow with third-party platforms.
 // Route: GET /iam/v1/oauth/platforms/:platformId/authorize
 // This endpoint:

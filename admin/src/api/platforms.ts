@@ -1,5 +1,5 @@
 import apiClient from './client';
-import { PlatformClient, PlatformUser } from './types';
+import { PlatformClient, PlatformUser, PlatformUserSearchParams, PlatformUserSearchResult } from './types';
 
 export const platformApi = {
   // Platform users
@@ -7,6 +7,19 @@ export const platformApi = {
     apiClient.get<{ platforms: PlatformUser[] }>(
       `/iam/v1/oauth/admin/namespaces/${namespace}/users/${userId}/platforms`
     ),
+
+  searchPlatformUsers: (namespace: string, params: PlatformUserSearchParams) => {
+    const queryParams = new URLSearchParams();
+    if (params.platform_id) queryParams.set('platform_id', params.platform_id);
+    if (params.platform_user_id) queryParams.set('platform_user_id', params.platform_user_id);
+    if (params.created_from) queryParams.set('created_from', params.created_from);
+    if (params.created_to) queryParams.set('created_to', params.created_to);
+    if (params.offset !== undefined) queryParams.set('offset', String(params.offset));
+    if (params.limit !== undefined) queryParams.set('limit', String(params.limit));
+    return apiClient.get<PlatformUserSearchResult>(
+      `/iam/v1/admin/namespaces/${namespace}/platform-users/search?${queryParams.toString()}`
+    );
+  },
 
   getPlatformToken: (namespace: string, userId: string, platformId: string) =>
     apiClient.get<{ token: string }>(

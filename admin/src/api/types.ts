@@ -226,6 +226,27 @@ export interface PlatformUser {
   updated_at: string;
 }
 
+export interface PlatformUserSearchParams {
+  platform_id?: string;
+  platform_user_id?: string;
+  created_from?: string;
+  created_to?: string;
+  offset?: number;
+  limit?: number;
+}
+
+export interface PlatformUserSearchItem extends PlatformUser {
+  account_id: string;
+  actual_user_id: string;
+}
+
+export interface PlatformUserSearchResult {
+  data: PlatformUserSearchItem[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
 // API Response types
 export interface ListResponse<T> {
   data: T[];
