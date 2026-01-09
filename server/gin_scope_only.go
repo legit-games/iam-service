@@ -49,14 +49,14 @@ func NewGinEngineWithScopeAuth(s *Server) *gin.Engine {
 	r.PUT("/iam/v1/admin/namespaces/:ns", s.RequireAnyScope(ScopeNamespaceWrite, ScopeAdmin), s.handleUpdateNamespace)
 
 	// Account Management
-	r.POST("/iam/v1/accounts/head", s.RequireAnyScope(ScopeAccountWrite, ScopeAdmin), s.handleCreateHeadAccount)
-	r.POST("/iam/v1/accounts/headless", s.RequireAnyScope(ScopeAccountWrite, ScopeAdmin), s.handleCreateHeadlessAccount)
-	r.POST("/iam/v1/accounts/:id/link", s.RequireAnyScope(ScopeAccountWrite, ScopeAdmin), s.handleLinkAccount)
-	r.POST("/iam/v1/accounts/:id/unlink", s.RequireAnyScope(ScopeAccountWrite, ScopeAdmin), s.handleUnlinkAccount)
-	r.POST("/iam/v1/admin/accounts/:id/ban", s.RequireAnyScope(ScopeAccountAdmin, ScopeAdmin), s.HandleBanAccountGin)
-	r.POST("/iam/v1/admin/accounts/:id/unban", s.RequireAnyScope(ScopeAccountAdmin, ScopeAdmin), s.HandleUnbanAccountGin)
-	r.GET("/iam/v1/admin/accounts/:id/bans", s.RequireAnyScope(ScopeAccountRead, ScopeAdmin), s.HandleListAccountBansGin)
-	r.GET("/iam/v1/admin/accounts/:id/login-history", s.RequireAnyScope(ScopeAccountRead, ScopeAdmin), s.HandleListLoginHistoryGin)
+	r.POST("/iam/v1/users/head", s.RequireAnyScope(ScopeAccountWrite, ScopeAdmin), s.handleCreateHeadAccount)
+	r.POST("/iam/v1/users/headless", s.RequireAnyScope(ScopeAccountWrite, ScopeAdmin), s.handleCreateHeadlessAccount)
+	r.POST("/iam/v1/users/:id/link", s.RequireAnyScope(ScopeAccountWrite, ScopeAdmin), s.handleLinkAccount)
+	r.POST("/iam/v1/users/:id/unlink", s.RequireAnyScope(ScopeAccountWrite, ScopeAdmin), s.handleUnlinkAccount)
+	r.POST("/iam/v1/admin/users/:id/ban", s.RequireAnyScope(ScopeAccountAdmin, ScopeAdmin), s.HandleBanAccountGin)
+	r.POST("/iam/v1/admin/users/:id/unban", s.RequireAnyScope(ScopeAccountAdmin, ScopeAdmin), s.HandleUnbanAccountGin)
+	r.GET("/iam/v1/admin/users/:id/bans", s.RequireAnyScope(ScopeAccountRead, ScopeAdmin), s.HandleListAccountBansGin)
+	r.GET("/iam/v1/admin/users/:id/login-history", s.RequireAnyScope(ScopeAccountRead, ScopeAdmin), s.HandleListLoginHistoryGin)
 
 	// Client Management
 	r.GET("/iam/v1/admin/clients/:id", s.RequireAnyScope(ScopeClientRead, ScopeAdmin), s.HandleGetClientGin)

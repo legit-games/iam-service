@@ -20,11 +20,11 @@ export function useUserBans(namespace: string, userId: string) {
   });
 }
 
-export function useAccountBans(accountId: string) {
+export function useUserBansGlobal(userId: string) {
   return useQuery({
-    queryKey: [...BANS_KEY, 'account', accountId],
-    queryFn: () => banApi.listAccountBans(accountId).then((r) => r.data.bans || []),
-    enabled: !!accountId,
+    queryKey: [...BANS_KEY, 'user-global', userId],
+    queryFn: () => banApi.listUserBansGlobal(userId).then((r) => r.data.bans || []),
+    enabled: !!userId,
   });
 }
 
@@ -52,26 +52,26 @@ export function useUnbanUser(namespace: string) {
   });
 }
 
-export function useBanAccount() {
+export function useBanUserGlobal() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ accountId, data }: { accountId: string; data: BanRequest }) =>
-      banApi.banAccount(accountId, data),
-    onSuccess: (_, { accountId }) => {
-      queryClient.invalidateQueries({ queryKey: [...BANS_KEY, 'account', accountId] });
+    mutationFn: ({ userId, data }: { userId: string; data: BanRequest }) =>
+      banApi.banUserGlobal(userId, data),
+    onSuccess: (_, { userId }) => {
+      queryClient.invalidateQueries({ queryKey: [...BANS_KEY, 'user-global', userId] });
     },
   });
 }
 
-export function useUnbanAccount() {
+export function useUnbanUserGlobal() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ accountId, data }: { accountId: string; data: UnbanRequest }) =>
-      banApi.unbanAccount(accountId, data),
-    onSuccess: (_, { accountId }) => {
-      queryClient.invalidateQueries({ queryKey: [...BANS_KEY, 'account', accountId] });
+    mutationFn: ({ userId, data }: { userId: string; data: UnbanRequest }) =>
+      banApi.unbanUserGlobal(userId, data),
+    onSuccess: (_, { userId }) => {
+      queryClient.invalidateQueries({ queryKey: [...BANS_KEY, 'user-global', userId] });
     },
   });
 }

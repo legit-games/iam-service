@@ -39,11 +39,11 @@ export function useUpdateUserPermissions(userId: string) {
   });
 }
 
-export function useLoginHistory(accountId: string, limit?: number) {
+export function useLoginHistory(userId: string, limit?: number) {
   return useQuery({
-    queryKey: [...LOGIN_HISTORY_KEY, accountId, limit],
-    queryFn: () => userApi.getLoginHistory(accountId, { limit }).then((r) => r.data.login_history),
-    enabled: !!accountId,
+    queryKey: [...LOGIN_HISTORY_KEY, userId, limit],
+    queryFn: () => userApi.getLoginHistory(userId, { limit }).then((r) => r.data.login_history),
+    enabled: !!userId,
     retry: false,
   });
 }

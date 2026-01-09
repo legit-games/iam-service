@@ -29,12 +29,6 @@ export default function UserList() {
       render: (id: string) => <code>{id}</code>,
     },
     {
-      title: 'Account ID',
-      dataIndex: 'account_id',
-      key: 'account_id',
-      render: (id: string) => <code>{id}</code>,
-    },
-    {
       title: 'Type',
       dataIndex: 'user_type',
       key: 'user_type',
@@ -157,7 +151,6 @@ export default function UserList() {
             style={{ width: 140 }}
             options={[
               { value: 'user_id', label: 'User ID' },
-              { value: 'account_id', label: 'Account ID' },
               { value: 'username', label: 'Username' },
               { value: 'created_at', label: 'Created Date' },
             ]}
@@ -173,9 +166,7 @@ export default function UserList() {
               placeholder={
                 searchType === 'user_id'
                   ? 'Enter User ID to search...'
-                  : searchType === 'account_id'
-                    ? 'Enter Account ID to search...'
-                    : 'Enter Username to search...'
+                  : 'Enter Username to search...'
               }
               value={searchId}
               onChange={(e) => setSearchId(e.target.value)}
