@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-oauth2/oauth2/v4/geoip"
 	"github.com/go-oauth2/oauth2/v4/models"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -139,9 +140,18 @@ func (s *Server) HandleAPIRegisterUserGin(c *gin.Context) {
 		return
 	}
 
+	// Get client IP and lookup country
+	clientIP := geoip.GetClientIP(c.Request)
+	geoClient := geoip.NewClient()
+	countryCode := geoClient.LookupCountry(c.Request.Context(), clientIP)
+	var country *string
+	if countryCode != "" {
+		country = &countryCode
+	}
+
 	accountID := models.LegitID()
 	hash, _ := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
-	userID, err := s.userStore.CreateHeadAccount(c.Request.Context(), accountID, payload.Username, string(hash), &payload.Email)
+	userID, err := s.userStore.CreateHeadAccount(c.Request.Context(), accountID, payload.Username, string(hash), &payload.Email, country)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("create account: %v", err)})
 		return
@@ -449,7 +459,7 @@ func (s *Server) HandleGetUserGin(c *gin.Context) {
 	switch searchType {
 	case "user_id":
 		query = `
-			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at, a.email
+			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at, a.email, a.country
 			FROM users u
 			JOIN account_users au ON au.user_id = u.id
 			LEFT JOIN accounts a ON au.account_id = a.id
@@ -457,7 +467,7 @@ func (s *Server) HandleGetUserGin(c *gin.Context) {
 		args = []interface{}{searchID}
 	case "account_id":
 		query = `
-			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at, a.email
+			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at, a.email, a.country
 			FROM users u
 			JOIN account_users au ON au.user_id = u.id
 			LEFT JOIN accounts a ON au.account_id = a.id
@@ -465,7 +475,7 @@ func (s *Server) HandleGetUserGin(c *gin.Context) {
 		args = []interface{}{searchID}
 	case "username":
 		query = `
-			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at, a.email
+			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at, a.email, a.country
 			FROM users u
 			JOIN account_users au ON au.user_id = u.id
 			INNER JOIN accounts a ON au.account_id = a.id
@@ -474,7 +484,7 @@ func (s *Server) HandleGetUserGin(c *gin.Context) {
 	default:
 		// Default: search by user ID, account ID, or username (join with accounts table)
 		query = `
-			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at, a.email
+			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at, a.email, a.country
 			FROM users u
 			JOIN account_users au ON au.user_id = u.id
 			LEFT JOIN accounts a ON au.account_id = a.id

@@ -18,10 +18,10 @@ func NewUserStore(db *gorm.DB) *UserStore { return &UserStore{DB: db} }
 
 // CreateHeadAccount creates a HEAD account with a HEAD user (namespace=nil).
 // Returns the created userID.
-func (s *UserStore) CreateHeadAccount(ctx context.Context, accountID, username, passwordHash string, email *string) (string, error) {
+func (s *UserStore) CreateHeadAccount(ctx context.Context, accountID, username, passwordHash string, email, country *string) (string, error) {
 	userID := models.LegitID()
 	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`INSERT INTO accounts(id, username, password_hash, account_type, email) VALUES(?,?,?,?,?)`, accountID, username, passwordHash, string(models.AccountHead), email).Error; err != nil {
+		if err := tx.Exec(`INSERT INTO accounts(id, username, password_hash, account_type, email, country) VALUES(?,?,?,?,?,?)`, accountID, username, passwordHash, string(models.AccountHead), email, country).Error; err != nil {
 			return err
 		}
 		if err := tx.Exec(`INSERT INTO users(id, namespace, user_type, orphaned) VALUES(?,?,?,FALSE)`, userID, nil, string(models.UserHead)).Error; err != nil {
@@ -398,4 +398,28 @@ func (s *UserStore) GetSignupStats(ctx context.Context, namespace string) (*mode
 	}
 
 	return stats, nil
+}
+
+// UpdateAccountEmailIfEmpty updates the account's email only if it's currently NULL.
+// This is used to populate email from platform providers (e.g., Google) during login.
+func (s *UserStore) UpdateAccountEmailIfEmpty(ctx context.Context, accountID string, email string) error {
+	if accountID == "" || email == "" {
+		return nil
+	}
+	return s.DB.WithContext(ctx).Exec(
+		`UPDATE accounts SET email = ? WHERE id = ? AND email IS NULL`,
+		email, accountID,
+	).Error
+}
+
+// UpdateAccountCountryIfEmpty updates the account's country only if it's currently NULL.
+// This is used to populate country from IP geolocation during login.
+func (s *UserStore) UpdateAccountCountryIfEmpty(ctx context.Context, accountID string, country string) error {
+	if accountID == "" || country == "" {
+		return nil
+	}
+	return s.DB.WithContext(ctx).Exec(
+		`UPDATE accounts SET country = ? WHERE id = ? AND country IS NULL`,
+		country, accountID,
+	).Error
 }

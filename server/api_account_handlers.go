@@ -13,6 +13,7 @@ type CreateHeadAccountRequest struct {
 	Username     string  `json:"username" binding:"required"`
 	PasswordHash string  `json:"password_hash" binding:"required"`
 	Email        *string `json:"email"`
+	Country      *string `json:"country"` // ISO 3166-1 alpha-2 country code
 }
 
 func (s *Server) handleCreateHeadAccount(c *gin.Context) {
@@ -35,7 +36,7 @@ func (s *Server) handleCreateHeadAccount(c *gin.Context) {
 		}
 	}
 
-	userID, err := s.userStore.CreateHeadAccount(c.Request.Context(), req.AccountID, req.Username, req.PasswordHash, email)
+	userID, err := s.userStore.CreateHeadAccount(c.Request.Context(), req.AccountID, req.Username, req.PasswordHash, email, req.Country)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return

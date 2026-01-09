@@ -74,6 +74,7 @@ export interface User {
   namespace?: string;
   user_type: UserType;
   email?: string;
+  country?: string; // ISO 3166-1 alpha-2 country code
   provider_type?: string;
   provider_account_id?: string;
   orphaned: boolean;

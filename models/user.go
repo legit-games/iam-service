@@ -16,8 +16,9 @@ const (
 type Account struct {
 	ID           string      `json:"id" db:"id"`
 	Username     string      `json:"username" db:"username"`
-	Email        *string     `json:"email,omitempty" db:"email"` // Optional email address
-	PasswordHash string      `json:"-" db:"password_hash"`       // Never expose in JSON
+	Email        *string     `json:"email,omitempty" db:"email"`     // Optional email address
+	Country      *string     `json:"country,omitempty" db:"country"` // ISO 3166-1 alpha-2 country code
+	PasswordHash string      `json:"-" db:"password_hash"`           // Never expose in JSON
 	AccountType  AccountType `json:"account_type" db:"account_type"`
 	CreatedAt    time.Time   `json:"created_at" db:"created_at"`
 }
