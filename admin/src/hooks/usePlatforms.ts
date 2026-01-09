@@ -7,7 +7,7 @@ export const PLATFORMS_KEY = ['platforms'];
 export function useUserPlatforms(namespace: string, userId: string) {
   return useQuery({
     queryKey: [...PLATFORMS_KEY, 'users', namespace, userId],
-    queryFn: () => platformApi.listUserPlatforms(namespace, userId).then((r) => r.data),
+    queryFn: () => platformApi.listUserPlatforms(namespace, userId).then((r) => r.data.platforms || []),
     enabled: !!namespace && !!userId,
   });
 }

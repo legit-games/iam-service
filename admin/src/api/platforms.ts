@@ -4,7 +4,7 @@ import { PlatformClient, PlatformUser } from './types';
 export const platformApi = {
   // Platform users
   listUserPlatforms: (namespace: string, userId: string) =>
-    apiClient.get<PlatformUser[]>(
+    apiClient.get<{ platforms: PlatformUser[] }>(
       `/iam/v1/oauth/admin/namespaces/${namespace}/users/${userId}/platforms`
     ),
 
