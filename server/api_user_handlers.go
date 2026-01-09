@@ -647,3 +647,21 @@ func (s *Server) HandleListLoginHistoryGin(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"login_history": rows, "count": len(rows)})
 }
+
+// HandleGetSignupStatsGin returns signup statistics for the dashboard.
+// Returns today's signups, this week's signups, this month's signups, and monthly breakdown.
+// Path param :ns specifies the namespace to filter by. If empty, returns global stats.
+// HEAD and BODY users linked to the same account are counted as 1 user.
+func (s *Server) HandleGetSignupStatsGin(c *gin.Context) {
+	if s.userStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "user store not initialized"})
+		return
+	}
+	namespace := strings.TrimSpace(c.Param("ns"))
+	stats, err := s.userStore.GetSignupStats(c.Request.Context(), namespace)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, stats)
+}

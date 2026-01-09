@@ -297,3 +297,105 @@ func (s *UserStore) ListAccountBans(ctx context.Context, accountID string) ([]mo
 	err := s.DB.WithContext(ctx).Where("account_id = ?", accountID).Order("created_at DESC").Find(&bans).Error
 	return bans, err
 }
+
+// GetSignupStats returns signup statistics for the dashboard.
+// If namespace is provided, counts unique accounts with users in that namespace.
+// If namespace is empty, counts all accounts.
+// HEAD and BODY users linked to the same account are counted as 1.
+func (s *UserStore) GetSignupStats(ctx context.Context, namespace string) (*models.SignupStats, error) {
+	stats := &models.SignupStats{}
+	ns := strings.ToUpper(strings.TrimSpace(namespace))
+
+	// Base query parts for namespace filtering
+	// When namespace is specified, we count distinct accounts that have users in that namespace
+	// The signup time is when the user was first linked to that namespace (MIN of account_users.created_at)
+	var baseQuery, countQuery string
+	var args []interface{}
+
+	if ns != "" {
+		// Namespace-specific: count distinct accounts with users in this namespace
+		baseQuery = `
+			SELECT COUNT(DISTINCT au.account_id) FROM account_users au
+			INNER JOIN users u ON u.id = au.user_id
+			WHERE u.namespace = $1`
+		args = []interface{}{ns}
+	} else {
+		// Global: count all accounts
+		baseQuery = `SELECT COUNT(*) FROM accounts`
+		args = []interface{}{}
+	}
+
+	// Today's signups
+	if ns != "" {
+		countQuery = baseQuery + ` AND DATE(au.created_at AT TIME ZONE 'UTC') = DATE(NOW() AT TIME ZONE 'UTC')`
+	} else {
+		countQuery = baseQuery + ` WHERE DATE(created_at AT TIME ZONE 'UTC') = DATE(NOW() AT TIME ZONE 'UTC')`
+	}
+	err := s.DB.WithContext(ctx).Raw(countQuery, args...).Scan(&stats.Today).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// This week's signups (last 7 days)
+	if ns != "" {
+		countQuery = baseQuery + ` AND au.created_at AT TIME ZONE 'UTC' >= (NOW() AT TIME ZONE 'UTC' - INTERVAL '7 days')`
+	} else {
+		countQuery = baseQuery + ` WHERE created_at AT TIME ZONE 'UTC' >= (NOW() AT TIME ZONE 'UTC' - INTERVAL '7 days')`
+	}
+	err = s.DB.WithContext(ctx).Raw(countQuery, args...).Scan(&stats.ThisWeek).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// This month's signups
+	if ns != "" {
+		countQuery = baseQuery + ` AND DATE_TRUNC('month', au.created_at AT TIME ZONE 'UTC') = DATE_TRUNC('month', NOW() AT TIME ZONE 'UTC')`
+	} else {
+		countQuery = baseQuery + ` WHERE DATE_TRUNC('month', created_at AT TIME ZONE 'UTC') = DATE_TRUNC('month', NOW() AT TIME ZONE 'UTC')`
+	}
+	err = s.DB.WithContext(ctx).Raw(countQuery, args...).Scan(&stats.ThisMonth).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// Monthly breakdown for the last 12 months
+	type monthRow struct {
+		Month string
+		Count int64
+	}
+	var months []monthRow
+
+	if ns != "" {
+		// For namespace: group by month when user was linked to that namespace
+		err = s.DB.WithContext(ctx).Raw(`
+			SELECT TO_CHAR(DATE_TRUNC('month', au.created_at AT TIME ZONE 'UTC'), 'YYYY-MM') as month,
+			       COUNT(DISTINCT au.account_id) as count
+			FROM account_users au
+			INNER JOIN users u ON u.id = au.user_id
+			WHERE u.namespace = $1
+			  AND au.created_at AT TIME ZONE 'UTC' >= DATE_TRUNC('month', NOW() AT TIME ZONE 'UTC') - INTERVAL '11 months'
+			GROUP BY DATE_TRUNC('month', au.created_at AT TIME ZONE 'UTC')
+			ORDER BY month ASC
+		`, ns).Scan(&months).Error
+	} else {
+		// Global: group by account creation date
+		err = s.DB.WithContext(ctx).Raw(`
+			SELECT TO_CHAR(DATE_TRUNC('month', created_at AT TIME ZONE 'UTC'), 'YYYY-MM') as month,
+			       COUNT(*) as count
+			FROM accounts
+			WHERE created_at AT TIME ZONE 'UTC' >= DATE_TRUNC('month', NOW() AT TIME ZONE 'UTC') - INTERVAL '11 months'
+			GROUP BY DATE_TRUNC('month', created_at AT TIME ZONE 'UTC')
+			ORDER BY month ASC
+		`).Scan(&months).Error
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	stats.Monthly = make([]models.MonthCount, len(months))
+	for i, m := range months {
+		stats.Monthly[i] = models.MonthCount{Month: m.Month, Count: m.Count}
+	}
+
+	return stats, nil
+}

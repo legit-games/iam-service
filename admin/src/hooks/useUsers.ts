@@ -5,6 +5,7 @@ import { message } from 'antd';
 const USERS_KEY = ['users'];
 const USER_PERMISSIONS_KEY = ['user-permissions'];
 const LOGIN_HISTORY_KEY = ['login-history'];
+const SIGNUP_STATS_KEY = ['signup-stats'];
 
 export function useUser(namespace: string, userId: string, searchType?: SearchType) {
   return useQuery({
@@ -44,6 +45,15 @@ export function useLoginHistory(userId: string, limit?: number) {
     queryKey: [...LOGIN_HISTORY_KEY, userId, limit],
     queryFn: () => userApi.getLoginHistory(userId, { limit }).then((r) => r.data.login_history),
     enabled: !!userId,
+    retry: false,
+  });
+}
+
+export function useSignupStats(namespace: string) {
+  return useQuery({
+    queryKey: [...SIGNUP_STATS_KEY, namespace],
+    queryFn: () => userApi.getSignupStats(namespace).then((r) => r.data),
+    enabled: !!namespace,
     retry: false,
   });
 }
