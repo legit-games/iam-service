@@ -33,20 +33,20 @@ type ipAPIResponse struct {
 }
 
 // LookupCountry returns the ISO 3166-1 alpha-2 country code for the given IP address.
-// Returns empty string if lookup fails or IP is private/localhost.
+// Returns empty string if lookup fails.
+// For private/local IPs, it falls back to detecting country from server's public IP.
 func (c *Client) LookupCountry(ctx context.Context, ip string) string {
 	ip = strings.TrimSpace(ip)
-	if ip == "" {
-		return ""
-	}
-
-	// Skip private/local IPs
-	if isPrivateIP(ip) {
-		return ""
-	}
 
 	// Use ip-api.com (free, no API key required, 45 requests/minute limit)
-	url := fmt.Sprintf("http://ip-api.com/json/%s?fields=status,countryCode,message", ip)
+	// If IP is empty or private, call without IP to get server's public IP country
+	var url string
+	if ip == "" || isPrivateIP(ip) {
+		// Get country from server's public IP (useful for local development)
+		url = "http://ip-api.com/json/?fields=status,countryCode,message"
+	} else {
+		url = fmt.Sprintf("http://ip-api.com/json/%s?fields=status,countryCode,message", ip)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
