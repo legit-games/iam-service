@@ -20,11 +20,12 @@ func (s *Server) handleCreateHeadAccount(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, errorResponse(err))
 		return
 	}
-	if err := s.userStore.CreateHeadAccount(c.Request.Context(), req.AccountID, req.Username, req.PasswordHash); err != nil {
+	userID, err := s.userStore.CreateHeadAccount(c.Request.Context(), req.AccountID, req.Username, req.PasswordHash)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"account_id": req.AccountID})
+	c.JSON(http.StatusOK, gin.H{"user_id": userID})
 }
 
 type CreateHeadlessAccountRequest struct {

@@ -121,11 +121,12 @@ func (s *Server) HandleAPIRegisterUserGin(c *gin.Context) {
 	}
 	accountID := models.LegitID()
 	hash, _ := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
-	if err := s.userStore.CreateHeadAccount(c.Request.Context(), accountID, payload.Username, string(hash)); err != nil {
+	userID, err := s.userStore.CreateHeadAccount(c.Request.Context(), accountID, payload.Username, string(hash))
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("create account: %v", err)})
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"account_id": accountID})
+	c.JSON(http.StatusCreated, gin.H{"user_id": userID})
 }
 
 // Swagger fragments for API paths

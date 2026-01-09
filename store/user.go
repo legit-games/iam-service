@@ -17,12 +17,13 @@ type UserStore struct {
 func NewUserStore(db *gorm.DB) *UserStore { return &UserStore{DB: db} }
 
 // CreateHeadAccount creates a HEAD account with a HEAD user (namespace=nil).
-func (s *UserStore) CreateHeadAccount(ctx context.Context, accountID, username, passwordHash string) error {
-	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+// Returns the created userID.
+func (s *UserStore) CreateHeadAccount(ctx context.Context, accountID, username, passwordHash string) (string, error) {
+	userID := models.LegitID()
+	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec(`INSERT INTO accounts(id, username, password_hash, account_type) VALUES(?,?,?,?)`, accountID, username, passwordHash, string(models.AccountHead)).Error; err != nil {
 			return err
 		}
-		userID := models.LegitID()
 		if err := tx.Exec(`INSERT INTO users(id, namespace, user_type, orphaned) VALUES(?,?,?,FALSE)`, userID, nil, string(models.UserHead)).Error; err != nil {
 			return err
 		}
@@ -34,6 +35,10 @@ func (s *UserStore) CreateHeadAccount(ctx context.Context, accountID, username, 
 		}
 		return nil
 	})
+	if err != nil {
+		return "", err
+	}
+	return userID, nil
 }
 
 // CreateHeadlessAccount creates a HEADLESS account and an initial BODY user for a namespace/provider.
