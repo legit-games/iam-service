@@ -1,15 +1,20 @@
-import { Card, Row, Col, Statistic, Button, Space } from 'antd';
+import { Card, Row, Col, Statistic, Button, Space, Spin } from 'antd';
 import {
   KeyOutlined,
   UserOutlined,
   SafetyOutlined,
   PlusOutlined,
+  UserAddOutlined,
+  CalendarOutlined,
+  BarChartOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import { Area } from '@ant-design/charts';
 import { useClients } from '../hooks/useClients';
 import { useNamespaceContext } from '../hooks/useNamespaceContext';
 import { useRoles } from '../hooks/useRoles';
 import { useNamespaceBans } from '../hooks/useBans';
+import { useSignupStats } from '../hooks/useUsers';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -17,6 +22,7 @@ export default function Dashboard() {
   const { data: clients = [] } = useClients(currentNamespace || undefined);
   const { data: roles = [] } = useRoles(currentNamespace || '', undefined);
   const { data: bans = [] } = useNamespaceBans(currentNamespace || '', true);
+  const { data: signupStats, isLoading: isLoadingStats } = useSignupStats(currentNamespace || '');
 
   return (
     <div>
@@ -26,6 +32,76 @@ export default function Dashboard() {
           New Client
         </Button>
       </div>
+
+      {/* Registered Users Statistics */}
+      <Card title="Registered Users (RU)" style={{ marginBottom: 16 }}>
+        {isLoadingStats ? (
+          <div style={{ textAlign: 'center', padding: '20px' }}>
+            <Spin />
+          </div>
+        ) : (
+          <Row gutter={[16, 16]}>
+            <Col xs={24} sm={8}>
+              <Card>
+                <Statistic
+                  title="DRU (Daily New RU)"
+                  value={signupStats?.today ?? 0}
+                  prefix={<UserAddOutlined />}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Card>
+                <Statistic
+                  title="WRU (Weekly New RU)"
+                  value={signupStats?.this_week ?? 0}
+                  prefix={<CalendarOutlined />}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Card>
+                <Statistic
+                  title="MRU (Monthly New RU)"
+                  value={signupStats?.this_month ?? 0}
+                  prefix={<BarChartOutlined />}
+                />
+              </Card>
+            </Col>
+          </Row>
+        )}
+        {signupStats?.monthly && signupStats.monthly.length > 0 && (
+          <div style={{ marginTop: 24 }}>
+            <h4 style={{ marginBottom: 16 }}>New RU Trend (Last 12 Months)</h4>
+            <Area
+              data={signupStats.monthly.map((m) => ({
+                month: m.month,
+                newRU: m.count,
+              }))}
+              xField="month"
+              yField="newRU"
+              height={300}
+              style={{
+                fill: 'linear-gradient(-90deg, white 0%, #1890ff 100%)',
+              }}
+              line={{
+                style: {
+                  stroke: '#1890ff',
+                  lineWidth: 2,
+                },
+              }}
+              axis={{
+                x: {
+                  labelAutoRotate: true,
+                },
+                y: {
+                  title: 'New RU',
+                },
+              }}
+            />
+          </div>
+        )}
+      </Card>
 
       <div className="dashboard-stats">
         <Card hoverable onClick={() => navigate('/clients')}>

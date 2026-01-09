@@ -259,3 +259,16 @@ export interface ErrorResponse {
   error: string;
   error_description?: string;
 }
+
+// Dashboard stats types
+export interface MonthCount {
+  month: string; // Format: "YYYY-MM"
+  count: number;
+}
+
+export interface SignupStats {
+  today: number;
+  this_week: number;
+  this_month: number;
+  monthly: MonthCount[];
+}

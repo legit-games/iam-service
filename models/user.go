@@ -130,3 +130,17 @@ func ReevaluateAccountType(users []User) AccountType {
 
 // HeadNamespace returns nil to indicate the HEAD user has no namespace.
 func HeadNamespace() *string { return nil }
+
+// SignupStats represents signup statistics for the dashboard.
+type SignupStats struct {
+	Today     int64         `json:"today"`
+	ThisWeek  int64         `json:"this_week"`
+	ThisMonth int64         `json:"this_month"`
+	Monthly   []MonthCount  `json:"monthly"`
+}
+
+// MonthCount represents signup count for a specific month.
+type MonthCount struct {
+	Month string `json:"month"` // Format: "2006-01"
+	Count int64  `json:"count"`
+}
