@@ -87,6 +87,10 @@ func (s *Server) HandleAPIRegisterUser(w http.ResponseWriter, r *http.Request) e
 
 // HandleAPIRegisterUserGin registers a new user via Gin.
 func (s *Server) HandleAPIRegisterUserGin(c *gin.Context) {
+	if s.userStore == nil {
+		NotImplementedGin(c, "user store not initialized")
+		return
+	}
 	var payload struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -115,15 +119,11 @@ func (s *Server) HandleAPIRegisterUserGin(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "conflict", "error_description": "username already exists"})
 		return
 	}
-	userID := models.LegitID()
+	accountID := models.LegitID()
 	hash, _ := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
-	dbWrite, err := s.GetIAMWriteDB()
+	userID, err := s.userStore.CreateHeadAccount(c.Request.Context(), accountID, payload.Username, string(hash))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("open db: %v", err)})
-		return
-	}
-	if err := dbWrite.WithContext(c.Request.Context()).Exec(`INSERT INTO accounts (id, username, password_hash) VALUES ($1, $2, $3)`, userID, payload.Username, string(hash)).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("insert user: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("create account: %v", err)})
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"user_id": userID})

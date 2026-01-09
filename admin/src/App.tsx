@@ -4,6 +4,7 @@ import { useAuth } from './auth/useAuth';
 import { ProtectedRoute } from './auth/ProtectedRoute';
 import MainLayout from './components/Layout/MainLayout';
 import Login from './pages/Login';
+import Register from './pages/Register';
 import Callback from './pages/Callback';
 import NamespaceSelectPage from './pages/NamespaceSelectPage';
 import Dashboard from './pages/Dashboard';
@@ -31,6 +32,7 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
       <Route path="/callback" element={<Callback />} />
       <Route
         path="/select-namespace"
