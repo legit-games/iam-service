@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Button } from 'antd';
 import { LoginOutlined } from '@ant-design/icons';
 import { useAuth } from '../auth/useAuth';
@@ -28,6 +28,11 @@ export default function Login() {
         >
           Sign in with OAuth2
         </Button>
+
+        <div style={{ marginTop: 24, color: '#666' }}>
+          Don't have an account?{' '}
+          <Link to="/register">Register</Link>
+        </div>
       </div>
     </div>
   );
