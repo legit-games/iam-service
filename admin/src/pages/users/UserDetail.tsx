@@ -166,9 +166,6 @@ export default function UserDetail() {
           <Descriptions.Item label="Status">
             <Tag color={user.orphaned ? 'red' : 'green'}>{user.orphaned ? 'Orphaned' : 'Active'}</Tag>
           </Descriptions.Item>
-          <Descriptions.Item label="Account ID">
-            <code>{user.account_id}</code>
-          </Descriptions.Item>
         </Descriptions>
       </Card>
 
