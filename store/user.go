@@ -123,16 +123,34 @@ func (s *UserStore) Link(ctx context.Context, namespace string, headAccountID, h
 // Unlink removes provider from user; if orphaned, mark/remove according to policy, then reevaluate account type.
 func (s *UserStore) Unlink(ctx context.Context, accountID, namespace, providerType, providerAccountID string) error {
 	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Update user through join with account_users
+		// 1. Find the user to unlink
+		var userID string
+		if err := tx.Raw(`
+			SELECT u.id FROM users u
+			JOIN account_users au ON au.user_id = u.id
+			WHERE au.account_id=? AND u.namespace=? AND u.provider_type=? AND u.provider_account_id=?
+		`, accountID, namespace, providerType, providerAccountID).Row().Scan(&userID); err != nil {
+			return fmt.Errorf("user not found: %w", err)
+		}
+
+		// 2. Delete from platform_users table (AccelByte approach)
+		// This prevents the platform from being used for login
+		if err := tx.Exec(`
+			DELETE FROM platform_users
+			WHERE user_id = ? AND namespace = ? AND platform_id = ?
+		`, userID, namespace, providerType).Error; err != nil {
+			return fmt.Errorf("failed to delete platform_users: %w", err)
+		}
+
+		// 3. Update user: clear provider info and mark as orphaned
 		if err := tx.Exec(`
 			UPDATE users SET provider_type=NULL, provider_account_id=NULL, orphaned=TRUE
-			WHERE id IN (
-				SELECT u.id FROM users u
-				JOIN account_users au ON au.user_id = u.id
-				WHERE au.account_id=? AND u.namespace=? AND u.provider_type=? AND u.provider_account_id=?
-			)`, accountID, namespace, providerType, providerAccountID).Error; err != nil {
-			return err
+			WHERE id = ?
+		`, userID).Error; err != nil {
+			return fmt.Errorf("failed to update user: %w", err)
 		}
+
+		// 4. Re-evaluate account type
 		type row struct {
 			UserType string
 			Orphaned bool
@@ -152,6 +170,8 @@ func (s *UserStore) Unlink(ctx context.Context, accountID, namespace, providerTy
 		if err := tx.Exec(`UPDATE accounts SET account_type=? WHERE id=?`, string(newType), accountID).Error; err != nil {
 			return err
 		}
+
+		// 5. Record transaction
 		if err := tx.Exec(`INSERT INTO account_transactions(id, account_id, action, namespace, created_at) VALUES(?,?,?,?,?)`, models.LegitID(), accountID, "UNLINK", namespace, time.Now()).Error; err != nil {
 			return err
 		}
@@ -200,7 +220,7 @@ func (s *UserStore) UnlinkNamespace(ctx context.Context, fullAccountID, namespac
 		restoredHeadlessAccountID = originalHeadlessID
 		now := time.Now()
 
-		// 4. Find BODY users in the specified namespace
+		// 4. Find BODY users in the specified namespace (non-orphaned only)
 		var bodyUsers []struct {
 			ID                string
 			ProviderType      *string
@@ -210,7 +230,7 @@ func (s *UserStore) UnlinkNamespace(ctx context.Context, fullAccountID, namespac
 			SELECT u.id, u.provider_type, u.provider_account_id
 			FROM users u
 			JOIN account_users au ON au.user_id = u.id
-			WHERE au.account_id = ? AND u.namespace = ? AND u.user_type = 'BODY'
+			WHERE au.account_id = ? AND u.namespace = ? AND u.user_type = 'BODY' AND u.orphaned = FALSE
 		`, fullAccountID, namespace).Scan(&bodyUsers).Error; err != nil {
 			return err
 		}

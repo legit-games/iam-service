@@ -387,16 +387,21 @@ func (app *App) handleUnlink(c *gin.Context) {
 	accountID := c.PostForm("account_id")
 	namespace := c.PostForm("namespace")
 
+	log.Printf("[Unlink] account_id=%s, namespace=%s", accountID, namespace)
+
 	if accountID == "" || namespace == "" {
+		log.Printf("[Unlink] Error: account_id and namespace are required")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "account_id and namespace are required"})
 		return
 	}
 
 	restoredID, err := app.userStore.UnlinkNamespace(context.Background(), accountID, namespace)
 	if err != nil {
+		log.Printf("[Unlink] Error: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	log.Printf("[Unlink] Success: restored HEADLESS account %s", restoredID)
 
 	session := app.getSession(c)
 	if session != nil && session.AccountID == accountID {
@@ -889,11 +894,14 @@ const homeTemplate = `<!DOCTYPE html>
             .then(r => r.json())
             .then(data => {
                 if (data.error) {
-                    showResult('result', '<div class="alert alert-error">' + data.error + '</div>');
+                    showResult('result', '<div class="alert alert-error">Unlink failed: ' + data.error + '</div>');
                 } else {
                     showResult('result', '<div class="alert alert-success">Unlinked! HEADLESS restored: ' + data.restored_headless_id + '</div>');
                     setTimeout(() => location.reload(), 1500);
                 }
+            })
+            .catch(err => {
+                showResult('result', '<div class="alert alert-error">Unlink request failed: ' + err.message + '</div>');
             });
         }
 
