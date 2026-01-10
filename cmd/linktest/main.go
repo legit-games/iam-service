@@ -757,9 +757,10 @@ const homeTemplate = `<!DOCTYPE html>
                             {{if $.Session}}<button class="btn btn-sm btn-primary" onclick="startMerge('{{.ID}}')">Merge</button>{{end}}
                             <span id="code-{{.ID}}" class="generated-code"></span>
                         {{else if eq .AccountType "FULL"}}
+                            {{$accountID := .ID}}
                             {{range .Users}}
                                 {{if and .Namespace (ne .UserType "HEAD")}}
-                                <button class="btn btn-sm btn-danger" onclick="unlinkAccount('{{$.ID}}', '{{.Namespace}}')">Unlink {{.Namespace}}</button>
+                                <button class="btn btn-sm btn-danger" onclick="unlinkAccount('{{$accountID}}', '{{.Namespace}}')">Unlink {{.Namespace}}</button>
                                 {{end}}
                             {{end}}
                             {{if $.Session}}{{if ne .ID $.Session.AccountID}}<button class="btn btn-sm btn-primary" onclick="startMerge('{{.ID}}')">Merge</button>{{end}}{{end}}
