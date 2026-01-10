@@ -85,10 +85,16 @@ func (s *Server) handleLinkAccount(c *gin.Context) {
 		return
 	}
 	if !eligibility.Eligible {
-		c.JSON(http.StatusConflict, gin.H{
+		response := gin.H{
 			"error":             "link_not_eligible",
 			"error_description": eligibility.Reason,
-		})
+		}
+		// Include conflict info for merge API usage
+		if eligibility.Conflict != nil {
+			response["conflict"] = eligibility.Conflict
+			response["message"] = "Use Merge API to resolve this conflict"
+		}
+		c.JSON(http.StatusConflict, response)
 		return
 	}
 
@@ -265,10 +271,16 @@ func (s *Server) handleLinkWithCode(c *gin.Context) {
 		return
 	}
 	if !eligibility.Eligible {
-		c.JSON(http.StatusConflict, gin.H{
+		response := gin.H{
 			"error":             "link_not_eligible",
 			"error_description": eligibility.Reason,
-		})
+		}
+		// Include conflict info for merge API usage
+		if eligibility.Conflict != nil {
+			response["conflict"] = eligibility.Conflict
+			response["message"] = "Use Merge API to resolve this conflict"
+		}
+		c.JSON(http.StatusConflict, response)
 		return
 	}
 
@@ -511,4 +523,167 @@ func (s *Server) HandleRemoveUserPermissionsGin(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"user_id": userID, "permissions": newPerms})
 }
 
+// HandleListLinkHistoryGin returns link/unlink history for an account using account_transactions
+func (s *Server) HandleListLinkHistoryGin(c *gin.Context) {
+	accountID := strings.TrimSpace(c.Param("id"))
+	if accountID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "account ID is required"})
+		return
+	}
+
+	db, err := s.GetIAMReadDB()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
+		return
+	}
+
+	// Get transactions with their histories
+	transactions := make([]map[string]interface{}, 0)
+	query := `
+		SELECT at.id, at.account_id, at.action, at.namespace, at.description, at.created_at
+		FROM account_transactions at
+		WHERE at.account_id = ? AND at.action IN ('LINK', 'UNLINK')
+		ORDER BY at.created_at DESC
+		LIMIT 50`
+
+	result := db.WithContext(c.Request.Context()).Raw(query, accountID).Scan(&transactions)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": result.Error.Error()})
+		return
+	}
+
+	// Ensure we return an empty array, not null
+	if transactions == nil {
+		transactions = make([]map[string]interface{}, 0)
+	}
+
+	// Get histories for each transaction
+	for i, tx := range transactions {
+		histories := make([]map[string]interface{}, 0)
+		historyQuery := `
+			SELECT id, user_id, account_id, from_account_id, to_account_id, provider_type, provider_account_id, created_at
+			FROM account_transaction_histories
+			WHERE transaction_id = ?
+			ORDER BY created_at`
+		if txID, ok := tx["id"].(string); ok {
+			db.WithContext(c.Request.Context()).Raw(historyQuery, txID).Scan(&histories)
+			if histories == nil {
+				histories = make([]map[string]interface{}, 0)
+			}
+			transactions[i]["histories"] = histories
+		}
+	}
+
+	c.JSON(http.StatusOK, transactions)
+}
+
 func errorResponse(err error) map[string]string { return map[string]string{"error": err.Error()} }
+
+// ============================================================================
+// Account Merge Handlers
+// ============================================================================
+
+// HandleCheckMergeEligibilityGin checks if two accounts can be merged.
+// GET /accounts/:id/merge/check?source_account_id=xxx
+func (s *Server) HandleCheckMergeEligibilityGin(c *gin.Context) {
+	targetAccountID := strings.TrimSpace(c.Param("id"))
+	sourceAccountID := strings.TrimSpace(c.Query("source_account_id"))
+
+	if targetAccountID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "target account ID is required"})
+		return
+	}
+	if sourceAccountID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "source_account_id query parameter is required"})
+		return
+	}
+
+	eligibility, err := s.userStore.CheckMergeEligibility(c.Request.Context(), sourceAccountID, targetAccountID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, eligibility)
+}
+
+// HandleMergeAccountGin merges source account into target account.
+// POST /accounts/:id/merge
+func (s *Server) HandleMergeAccountGin(c *gin.Context) {
+	targetAccountID := strings.TrimSpace(c.Param("id"))
+	if targetAccountID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "target account ID is required"})
+		return
+	}
+
+	var req struct {
+		SourceAccountID     string                     `json:"source_account_id"`
+		ConflictResolutions []store.ConflictResolution `json:"conflict_resolutions"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": err.Error()})
+		return
+	}
+	if req.SourceAccountID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "source_account_id is required"})
+		return
+	}
+
+	// First check eligibility
+	eligibility, err := s.userStore.CheckMergeEligibility(c.Request.Context(), req.SourceAccountID, targetAccountID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
+		return
+	}
+
+	// If not eligible due to basic validation errors
+	if !eligibility.Eligible && eligibility.Reason != "conflict_detected" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "merge_not_eligible",
+			"error_description": eligibility.Reason,
+		})
+		return
+	}
+
+	// If there are conflicts, check if resolutions are provided
+	if len(eligibility.Conflicts) > 0 {
+		// Build a map of provided resolutions
+		resolutionMap := make(map[string]bool)
+		for _, r := range req.ConflictResolutions {
+			resolutionMap[r.Namespace] = true
+		}
+
+		// Check all conflicts have resolutions
+		var missingResolutions []string
+		for _, conflict := range eligibility.Conflicts {
+			if !resolutionMap[conflict.Namespace] {
+				missingResolutions = append(missingResolutions, conflict.Namespace)
+			}
+		}
+
+		if len(missingResolutions) > 0 {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":               "conflict_requires_resolution",
+				"error_description":   "Conflicts detected. Please provide resolutions for all conflicting namespaces.",
+				"conflicts":           eligibility.Conflicts,
+				"missing_resolutions": missingResolutions,
+			})
+			return
+		}
+	}
+
+	// Perform merge
+	result, err := s.userStore.Merge(c.Request.Context(), req.SourceAccountID, targetAccountID, req.ConflictResolutions)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "merge_failed", "error_description": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":           true,
+		"target_account_id": targetAccountID,
+		"source_account_id": req.SourceAccountID,
+		"merged_namespaces": result.MergedNamespaces,
+		"orphaned_users":    result.OrphanedUsers,
+	})
+}

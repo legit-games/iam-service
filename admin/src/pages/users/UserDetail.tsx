@@ -8,9 +8,9 @@ import PermissionEditor from '../../components/PermissionEditor';
 import { useNamespaceContext } from '../../hooks/useNamespaceContext';
 import { useBanUser, useUserBans } from '../../hooks/useBans';
 import { useUserPlatforms } from '../../hooks/usePlatforms';
-import { useUser, useUserPermissions, useUpdateUserPermissions, useLoginHistory } from '../../hooks/useUsers';
+import { useUser, useUserPermissions, useUpdateUserPermissions, useLoginHistory, useLinkHistory } from '../../hooks/useUsers';
 import type { SearchType } from '../../api/users';
-import type { LoginHistory } from '../../api/types';
+import type { LoginHistory, AccountTransaction } from '../../api/types';
 
 export default function UserDetail() {
   const { id } = useParams<{ id: string }>();
@@ -42,6 +42,7 @@ export default function UserDetail() {
   const { data: userPermissions, isLoading: permissionsLoading } = useUserPermissions(id || '');
   const updatePermissionsMutation = useUpdateUserPermissions(id || '');
   const { data: loginHistory = [], isLoading: loginHistoryLoading } = useLoginHistory(user?.account_id || '', 10);
+  const { data: linkHistory = [], isLoading: linkHistoryLoading } = useLinkHistory(user?.account_id || '');
 
   // Sync permissions state when data is loaded
   useEffect(() => {
@@ -284,6 +285,70 @@ export default function UserDetail() {
           />
         ) : (
           <Empty description="No login history" />
+        )}
+      </Card>
+
+      <Card title="Account Transactions" style={{ marginBottom: 16 }} loading={linkHistoryLoading}>
+        {linkHistory && linkHistory.length > 0 ? (
+          <Table
+            dataSource={linkHistory}
+            rowKey="id"
+            pagination={false}
+            size="small"
+            expandable={{
+              expandedRowRender: (record: AccountTransaction) => (
+                record.histories && record.histories.length > 0 ? (
+                  <Table
+                    dataSource={record.histories}
+                    rowKey="id"
+                    pagination={false}
+                    size="small"
+                    columns={[
+                      { title: 'User ID', dataIndex: 'user_id', key: 'user_id', ellipsis: true, render: (id: string) => id ? <code style={{ fontSize: '10px' }}>{id}</code> : '-' },
+                      { title: 'From Account', dataIndex: 'from_account_id', key: 'from_account_id', ellipsis: true, render: (id: string) => id ? <code style={{ fontSize: '10px' }}>{id}</code> : '-' },
+                      { title: 'To Account', dataIndex: 'to_account_id', key: 'to_account_id', ellipsis: true, render: (id: string) => id ? <code style={{ fontSize: '10px' }}>{id}</code> : '-' },
+                      { title: 'Provider', dataIndex: 'provider_type', key: 'provider_type', render: (p: string) => p || '-' },
+                    ]}
+                  />
+                ) : <Empty description="No details" />
+              ),
+              rowExpandable: (record: AccountTransaction) => !!(record.histories && record.histories.length > 0),
+            }}
+            columns={[
+              {
+                title: 'Time',
+                dataIndex: 'created_at',
+                key: 'created_at',
+                width: 180,
+                render: (date: string) => new Date(date).toLocaleString(),
+              },
+              {
+                title: 'Action',
+                dataIndex: 'action',
+                key: 'action',
+                width: 100,
+                render: (action: string) => (
+                  <Tag color={action === 'LINK' ? 'green' : 'orange'}>{action}</Tag>
+                ),
+              },
+              {
+                title: 'Namespace',
+                dataIndex: 'namespace',
+                key: 'namespace',
+                width: 120,
+                render: (ns: string) => <Tag>{ns}</Tag>,
+              },
+              {
+                title: 'Description',
+                dataIndex: 'description',
+                key: 'description',
+                ellipsis: true,
+                render: (desc: string) => desc || '-',
+              },
+            ] as ColumnsType<AccountTransaction>}
+          />
+        ) : (
+          <Empty description="No account transactions" />
         )}
       </Card>
 

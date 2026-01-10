@@ -75,6 +75,9 @@ func NewGinEngine(s *Server) *gin.Engine {
 	adminGroup.POST("/users/:id/link-code", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.CREATE), s.handleGenerateLinkCode)
 	adminGroup.GET("/link-codes/:code/validate", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.READ), s.handleValidateLinkCode)
 	adminGroup.POST("/users/:id/link-with-code", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:*:USER", permission.UPDATE), s.handleLinkWithCode)
+	// Account merge
+	adminGroup.GET("/accounts/:id/merge/check", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.READ), s.HandleCheckMergeEligibilityGin)
+	adminGroup.POST("/accounts/:id/merge", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.UPDATE), s.HandleMergeAccountGin)
 
 	// Admin: client upsert and permissions (Scope + Permission)
 	adminGroup.POST("/admin/namespaces/:ns/clients", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeClientWrite, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:CLIENT", permission.CREATE), s.HandleUpsertClientByNamespaceGin)
@@ -104,6 +107,7 @@ func NewGinEngine(s *Server) *gin.Engine {
 	adminGroup.POST("/admin/users/:id/unban", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.UPDATE), s.HandleUnbanAccountGin)
 	adminGroup.GET("/admin/users/:id/bans", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.READ), s.HandleListAccountBansGin)
 	adminGroup.GET("/admin/users/:id/login-history", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.READ), s.HandleListLoginHistoryGin)
+	adminGroup.GET("/admin/users/:id/link-history", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.READ), s.HandleListLinkHistoryGin)
 	// Admin: dashboard stats (namespace-scoped)
 	adminGroup.GET("/admin/namespaces/:ns/stats/signups", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeUserRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER", permission.READ), s.HandleGetSignupStatsGin)
 	// Admin: user permissions

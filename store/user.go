@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -64,6 +65,20 @@ func (s *UserStore) CreateHeadlessAccount(ctx context.Context, accountID, namesp
 // Link transfers BODY users from headless to head account within a namespace.
 func (s *UserStore) Link(ctx context.Context, namespace string, headAccountID, headlessAccountID string) error {
 	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Get BODY user info before moving
+		var bodyUser struct {
+			ID                string
+			ProviderType      *string
+			ProviderAccountID *string
+		}
+		if err := tx.Raw(`
+			SELECT u.id, u.provider_type, u.provider_account_id FROM users u
+			JOIN account_users au ON au.user_id = u.id
+			WHERE au.account_id = ? AND u.namespace = ? AND u.user_type = 'BODY' LIMIT 1
+		`, headlessAccountID, namespace).Scan(&bodyUser).Error; err != nil {
+			return fmt.Errorf("failed to get body user: %w", err)
+		}
+
 		// Update account_users: move BODY users from headless to head account
 		if err := tx.Exec(`
 			UPDATE account_users SET account_id=?
@@ -80,9 +95,27 @@ func (s *UserStore) Link(ctx context.Context, namespace string, headAccountID, h
 		if err := tx.Exec(`UPDATE accounts SET account_type='FULL' WHERE id=?`, headAccountID).Error; err != nil {
 			return err
 		}
-		if err := tx.Exec(`INSERT INTO account_transactions(id, account_id, action, namespace, created_at) VALUES(?,?,?,?,?)`, models.LegitID(), headAccountID, "LINK", namespace, time.Now()).Error; err != nil {
-			return err
+
+		now := time.Now()
+		transactionID := models.LegitID()
+		description := fmt.Sprintf("linking headless account %s to head account %s", headlessAccountID, headAccountID)
+
+		// Record in account_transactions
+		if err := tx.Exec(`
+			INSERT INTO account_transactions(id, account_id, action, namespace, description, created_at)
+			VALUES(?, ?, ?, ?, ?, ?)
+		`, transactionID, headAccountID, "LINK", namespace, description, now).Error; err != nil {
+			return fmt.Errorf("failed to record transaction: %w", err)
 		}
+
+		// Record in account_transaction_histories
+		if err := tx.Exec(`
+			INSERT INTO account_transaction_histories(id, transaction_id, user_id, account_id, from_account_id, to_account_id, provider_type, provider_account_id, created_at)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, models.LegitID(), transactionID, bodyUser.ID, headAccountID, headlessAccountID, headAccountID, bodyUser.ProviderType, bodyUser.ProviderAccountID, now).Error; err != nil {
+			return fmt.Errorf("failed to record transaction history: %w", err)
+		}
+
 		return nil
 	})
 }
@@ -124,6 +157,131 @@ func (s *UserStore) Unlink(ctx context.Context, accountID, namespace, providerTy
 		}
 		return nil
 	})
+}
+
+// UnlinkNamespace separates BODY users from a FULL account back to the original HEADLESS account.
+// This reverses the Link operation for a specific namespace.
+// The original HEADLESS account is found from account_transaction_histories.
+func (s *UserStore) UnlinkNamespace(ctx context.Context, fullAccountID, namespace string) (restoredHeadlessAccountID string, err error) {
+	err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 1. Verify the account is FULL type
+		var accountType string
+		if err := tx.Raw(`SELECT account_type FROM accounts WHERE id = ?`, fullAccountID).Row().Scan(&accountType); err != nil {
+			return fmt.Errorf("account not found: %w", err)
+		}
+		if accountType != string(models.AccountFull) {
+			return fmt.Errorf("account is not FULL type, cannot unlink")
+		}
+
+		// 2. Find the original HEADLESS account from account_transaction_histories
+		// Get the most recent LINK transaction for this account and namespace
+		var originalHeadlessID string
+		var providerType, providerAccountID *string
+		err := tx.Raw(`
+			SELECT ath.from_account_id, ath.provider_type, ath.provider_account_id
+			FROM account_transaction_histories ath
+			JOIN account_transactions at ON at.id = ath.transaction_id
+			WHERE at.account_id = ? AND at.namespace = ? AND at.action = 'LINK'
+			ORDER BY ath.created_at DESC LIMIT 1
+		`, fullAccountID, namespace).Row().Scan(&originalHeadlessID, &providerType, &providerAccountID)
+		if err != nil || originalHeadlessID == "" {
+			return fmt.Errorf("could not find original headless account for namespace %s in transaction history", namespace)
+		}
+
+		// 3. Verify the original account exists and is ORPHAN
+		var originalAccountType string
+		if err := tx.Raw(`SELECT account_type FROM accounts WHERE id = ?`, originalHeadlessID).Row().Scan(&originalAccountType); err != nil {
+			return fmt.Errorf("original headless account not found: %w", err)
+		}
+		if originalAccountType != string(models.AccountOrphan) {
+			return fmt.Errorf("original account is not ORPHAN type (current: %s), cannot restore", originalAccountType)
+		}
+
+		restoredHeadlessAccountID = originalHeadlessID
+		now := time.Now()
+
+		// 4. Find BODY users in the specified namespace
+		var bodyUsers []struct {
+			ID                string
+			ProviderType      *string
+			ProviderAccountID *string
+		}
+		if err := tx.Raw(`
+			SELECT u.id, u.provider_type, u.provider_account_id
+			FROM users u
+			JOIN account_users au ON au.user_id = u.id
+			WHERE au.account_id = ? AND u.namespace = ? AND u.user_type = 'BODY'
+		`, fullAccountID, namespace).Scan(&bodyUsers).Error; err != nil {
+			return err
+		}
+		if len(bodyUsers) == 0 {
+			return fmt.Errorf("no BODY users found in namespace %s", namespace)
+		}
+
+		// 5. Create UNLINK transaction record
+		transactionID := models.LegitID()
+		description := fmt.Sprintf("unlinking namespace %s from account %s, restoring to %s", namespace, fullAccountID, originalHeadlessID)
+		if err := tx.Exec(`
+			INSERT INTO account_transactions(id, account_id, action, namespace, description, created_at)
+			VALUES(?, ?, ?, ?, ?, ?)
+		`, transactionID, fullAccountID, "UNLINK", namespace, description, now).Error; err != nil {
+			return fmt.Errorf("failed to record transaction: %w", err)
+		}
+
+		// 6. Move BODY users back to original HEADLESS account and record history
+		for _, user := range bodyUsers {
+			// Update account_users to point back to original account
+			if err := tx.Exec(`
+				UPDATE account_users SET account_id = ? WHERE user_id = ?
+			`, originalHeadlessID, user.ID).Error; err != nil {
+				return fmt.Errorf("failed to move user: %w", err)
+			}
+
+			// Record history for each user movement
+			if err := tx.Exec(`
+				INSERT INTO account_transaction_histories(id, transaction_id, user_id, account_id, from_account_id, to_account_id, provider_type, provider_account_id, created_at)
+				VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`, models.LegitID(), transactionID, user.ID, originalHeadlessID, fullAccountID, originalHeadlessID, user.ProviderType, user.ProviderAccountID, now).Error; err != nil {
+				return fmt.Errorf("failed to record transaction history: %w", err)
+			}
+		}
+
+		// 7. Restore original account to HEADLESS
+		if err := tx.Exec(`UPDATE accounts SET account_type = ? WHERE id = ?`,
+			string(models.AccountHeadless), originalHeadlessID).Error; err != nil {
+			return fmt.Errorf("failed to restore headless account: %w", err)
+		}
+
+		// 8. Re-evaluate FULL account type
+		var countResult struct {
+			Count int64
+		}
+		if err := tx.Raw(`
+			SELECT COUNT(*) as count FROM users u
+			JOIN account_users au ON au.user_id = u.id
+			WHERE au.account_id = ? AND u.user_type = 'BODY' AND u.orphaned = FALSE
+		`, fullAccountID).Scan(&countResult).Error; err != nil {
+			return fmt.Errorf("failed to count remaining body users: %w", err)
+		}
+
+		newAccountType := models.AccountFull
+		if countResult.Count == 0 {
+			newAccountType = models.AccountHead
+		}
+		if err := tx.Exec(`UPDATE accounts SET account_type = ? WHERE id = ?`,
+			string(newAccountType), fullAccountID).Error; err != nil {
+			return fmt.Errorf("failed to update account type: %w", err)
+		}
+
+		// 9. Mark the link_code as unused (optional: allow re-linking)
+		_ = tx.Exec(`
+			UPDATE link_codes SET used = FALSE, used_by = NULL, used_at = NULL
+			WHERE headless_account_id = ? AND namespace = ? AND used_by = ?
+		`, originalHeadlessID, namespace, fullAccountID)
+
+		return nil
+	})
+	return restoredHeadlessAccountID, err
 }
 
 // GetUser returns HEAD user if namespace is empty, otherwise namespace-scoped user.
@@ -424,20 +582,32 @@ func (s *UserStore) UpdateAccountCountryIfEmpty(ctx context.Context, accountID s
 	).Error
 }
 
+// LinkConflictInfo contains information about conflicting platforms for merge.
+type LinkConflictInfo struct {
+	Namespace               string `json:"namespace"`
+	SourceAccountID         string `json:"source_account_id"`
+	SourceProviderType      string `json:"source_provider_type"`
+	SourceProviderAccountID string `json:"source_provider_account_id"`
+	TargetAccountID         string `json:"target_account_id"`
+	TargetProviderType      string `json:"target_provider_type"`
+	TargetProviderAccountID string `json:"target_provider_account_id"`
+}
+
 // LinkEligibility contains the result of link eligibility check.
 type LinkEligibility struct {
-	Eligible       bool   `json:"eligible"`
-	Reason         string `json:"reason,omitempty"`
-	ConflictUserID string `json:"conflict_user_id,omitempty"`
+	Eligible       bool              `json:"eligible"`
+	Reason         string            `json:"reason,omitempty"`
+	ConflictUserID string            `json:"conflict_user_id,omitempty"`
+	Conflict       *LinkConflictInfo `json:"conflict,omitempty"`
 }
 
 // LinkedPlatform represents a platform account linked to a user.
 type LinkedPlatform struct {
-	UserID            string  `json:"user_id"`
-	Namespace         string  `json:"namespace"`
-	ProviderType      string  `json:"provider_type"`
-	ProviderAccountID string  `json:"provider_account_id"`
-	AccountID         string  `json:"account_id"`
+	UserID            string `json:"user_id"`
+	Namespace         string `json:"namespace"`
+	ProviderType      string `json:"provider_type"`
+	ProviderAccountID string `json:"provider_account_id"`
+	AccountID         string `json:"account_id"`
 }
 
 // GetAccountInfo returns account information by account ID.
@@ -557,31 +727,53 @@ func (s *UserStore) CheckLinkEligibility(ctx context.Context, namespace, headAcc
 		return &LinkEligibility{Eligible: false, Reason: "headless_has_no_platform_in_namespace"}, nil
 	}
 
-	// Check if head account already has platform linked in same namespace with different provider
+	// Check if head account already has platform linked in same namespace
 	headPlatforms, err := s.GetLinkedPlatformsByNamespace(ctx, headAccountID, namespace)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, headPlatform := range headPlatforms {
-		for _, headlessPlatform := range headlessPlatforms {
-			// Same provider type but different account ID = conflict
-			if headPlatform.ProviderType == headlessPlatform.ProviderType &&
-				headPlatform.ProviderAccountID != headlessPlatform.ProviderAccountID {
-				return &LinkEligibility{
-					Eligible: false,
-					Reason:   "head_already_linked_to_different_platform_account",
-				}, nil
-			}
-			// Same provider and same account = already linked
-			if headPlatform.ProviderType == headlessPlatform.ProviderType &&
-				headPlatform.ProviderAccountID == headlessPlatform.ProviderAccountID {
-				return &LinkEligibility{
-					Eligible: false,
-					Reason:   "platform_already_linked_to_head",
-				}, nil
-			}
+	// If head account already has ANY platform in this namespace, check for conflicts
+	if len(headPlatforms) > 0 {
+		headPlatform := headPlatforms[0]
+		headlessPlatform := headlessPlatforms[0]
+
+		// Build conflict info for merge API
+		conflictInfo := &LinkConflictInfo{
+			Namespace:               namespace,
+			SourceAccountID:         headlessAccountID,
+			SourceProviderType:      headlessPlatform.ProviderType,
+			SourceProviderAccountID: headlessPlatform.ProviderAccountID,
+			TargetAccountID:         headAccountID,
+			TargetProviderType:      headPlatform.ProviderType,
+			TargetProviderAccountID: headPlatform.ProviderAccountID,
 		}
+
+		// Same provider type and same account ID = already linked (exact same platform)
+		if headPlatform.ProviderType == headlessPlatform.ProviderType &&
+			headPlatform.ProviderAccountID == headlessPlatform.ProviderAccountID {
+			return &LinkEligibility{
+				Eligible: false,
+				Reason:   "platform_already_linked",
+			}, nil
+		}
+
+		// Same provider type but different account ID = not allowed (cannot have two different users on same platform)
+		// This is NOT mergeable - just an error
+		if headPlatform.ProviderType == headlessPlatform.ProviderType &&
+			headPlatform.ProviderAccountID != headlessPlatform.ProviderAccountID {
+			return &LinkEligibility{
+				Eligible: false,
+				Reason:   fmt.Sprintf("same_platform_already_linked: %s is already linked with different account", headPlatform.ProviderType),
+			}, nil
+		}
+
+		// Different provider type in same namespace = conflict (e.g., Xbox vs PlayStation in TESTGAME)
+		return &LinkEligibility{
+			Eligible: false,
+			Reason:   "conflict_different_platform_same_namespace",
+			Conflict: conflictInfo,
+		}, nil
 	}
 
 	return &LinkEligibility{Eligible: true}, nil
@@ -605,4 +797,367 @@ func (s *UserStore) GetHeadlessAccountByPlatform(ctx context.Context, namespace,
 		return nil, nil
 	}
 	return &account, nil
+}
+
+// ============================================================================
+// Account Merge Types and Functions
+// ============================================================================
+
+// MergeConflict represents a conflict between source and target accounts in a namespace.
+type MergeConflict struct {
+	Namespace             string `json:"namespace"`
+	SourceUserID          string `json:"source_user_id"`
+	SourceProviderType    string `json:"source_provider_type"`
+	SourceProviderAccount string `json:"source_provider_account"`
+	TargetUserID          string `json:"target_user_id"`
+	TargetProviderType    string `json:"target_provider_type"`
+	TargetProviderAccount string `json:"target_provider_account"`
+}
+
+// ConflictResolution represents user's choice for resolving a merge conflict.
+type ConflictResolution struct {
+	Namespace string `json:"namespace"` // Conflicting namespace
+	Keep      string `json:"keep"`      // "SOURCE" or "TARGET"
+}
+
+// MergeEligibility contains the result of merge eligibility check.
+type MergeEligibility struct {
+	Eligible   bool            `json:"eligible"`
+	Reason     string          `json:"reason,omitempty"`
+	Conflicts  []MergeConflict `json:"conflicts,omitempty"`
+	Namespaces []string        `json:"namespaces"` // Namespaces that can be merged
+}
+
+// MergeResult contains the result of a merge operation.
+type MergeResult struct {
+	MergedNamespaces []string `json:"merged_namespaces"`
+	OrphanedUsers    []string `json:"orphaned_users"`
+}
+
+// CheckMergeEligibility checks if two accounts can be merged and returns any conflicts.
+func (s *UserStore) CheckMergeEligibility(ctx context.Context, sourceAccountID, targetAccountID string) (*MergeEligibility, error) {
+	// 1. Validate source account exists
+	sourceAccount, err := s.GetAccountInfo(ctx, sourceAccountID)
+	if err != nil {
+		return nil, err
+	}
+	if sourceAccount == nil {
+		return &MergeEligibility{Eligible: false, Reason: "source_account_not_found"}, nil
+	}
+
+	// 2. Validate target account exists and is HEAD or FULL
+	targetAccount, err := s.GetAccountInfo(ctx, targetAccountID)
+	if err != nil {
+		return nil, err
+	}
+	if targetAccount == nil {
+		return &MergeEligibility{Eligible: false, Reason: "target_account_not_found"}, nil
+	}
+	if targetAccount.AccountType != models.AccountHead && targetAccount.AccountType != models.AccountFull {
+		return &MergeEligibility{Eligible: false, Reason: "target_must_be_head_or_full"}, nil
+	}
+
+	// 3. Cannot merge same account
+	if sourceAccountID == targetAccountID {
+		return &MergeEligibility{Eligible: false, Reason: "cannot_merge_same_account"}, nil
+	}
+
+	// 4. Get all BODY users from source account
+	var sourceBodyUsers []struct {
+		UserID            string
+		Namespace         string
+		ProviderType      *string
+		ProviderAccountID *string
+	}
+	if err := s.DB.WithContext(ctx).Raw(`
+		SELECT u.id as user_id, u.namespace, u.provider_type, u.provider_account_id
+		FROM users u
+		JOIN account_users au ON au.user_id = u.id
+		WHERE au.account_id = ? AND u.user_type = 'BODY' AND u.orphaned = FALSE
+	`, sourceAccountID).Scan(&sourceBodyUsers).Error; err != nil {
+		return nil, err
+	}
+
+	if len(sourceBodyUsers) == 0 {
+		return &MergeEligibility{Eligible: false, Reason: "source_has_no_body_users"}, nil
+	}
+
+	// 5. Get all BODY users from target account
+	var targetBodyUsers []struct {
+		UserID            string
+		Namespace         string
+		ProviderType      *string
+		ProviderAccountID *string
+	}
+	if err := s.DB.WithContext(ctx).Raw(`
+		SELECT u.id as user_id, u.namespace, u.provider_type, u.provider_account_id
+		FROM users u
+		JOIN account_users au ON au.user_id = u.id
+		WHERE au.account_id = ? AND u.user_type = 'BODY' AND u.orphaned = FALSE
+	`, targetAccountID).Scan(&targetBodyUsers).Error; err != nil {
+		return nil, err
+	}
+
+	// 6. Build target namespace map for conflict detection
+	targetNamespaceMap := make(map[string]struct {
+		UserID            string
+		ProviderType      *string
+		ProviderAccountID *string
+	})
+	for _, u := range targetBodyUsers {
+		targetNamespaceMap[u.Namespace] = struct {
+			UserID            string
+			ProviderType      *string
+			ProviderAccountID *string
+		}{u.UserID, u.ProviderType, u.ProviderAccountID}
+	}
+
+	// 7. Check for conflicts
+	var conflicts []MergeConflict
+	var namespacesToMerge []string
+
+	for _, sourceUser := range sourceBodyUsers {
+		if targetUser, exists := targetNamespaceMap[sourceUser.Namespace]; exists {
+			// Check if same platform type - this is NOT mergeable
+			if sourceUser.ProviderType != nil && targetUser.ProviderType != nil &&
+				*sourceUser.ProviderType == *targetUser.ProviderType {
+				return &MergeEligibility{
+					Eligible: false,
+					Reason:   fmt.Sprintf("same_platform_not_mergeable: both accounts have %s in namespace %s", *sourceUser.ProviderType, sourceUser.Namespace),
+				}, nil
+			}
+
+			// Different platform type - this is a mergeable conflict
+			conflict := MergeConflict{
+				Namespace:    sourceUser.Namespace,
+				SourceUserID: sourceUser.UserID,
+				TargetUserID: targetUser.UserID,
+			}
+			if sourceUser.ProviderType != nil {
+				conflict.SourceProviderType = *sourceUser.ProviderType
+			}
+			if sourceUser.ProviderAccountID != nil {
+				conflict.SourceProviderAccount = *sourceUser.ProviderAccountID
+			}
+			if targetUser.ProviderType != nil {
+				conflict.TargetProviderType = *targetUser.ProviderType
+			}
+			if targetUser.ProviderAccountID != nil {
+				conflict.TargetProviderAccount = *targetUser.ProviderAccountID
+			}
+			conflicts = append(conflicts, conflict)
+		} else {
+			namespacesToMerge = append(namespacesToMerge, sourceUser.Namespace)
+		}
+	}
+
+	if len(conflicts) > 0 {
+		return &MergeEligibility{
+			Eligible:   false,
+			Reason:     "conflict_detected",
+			Conflicts:  conflicts,
+			Namespaces: namespacesToMerge,
+		}, nil
+	}
+
+	return &MergeEligibility{
+		Eligible:   true,
+		Namespaces: namespacesToMerge,
+	}, nil
+}
+
+// Merge moves all BODY users from source account to target account.
+// If there are conflicts, resolutions must be provided for each conflicting namespace.
+func (s *UserStore) Merge(ctx context.Context, sourceAccountID, targetAccountID string, resolutions []ConflictResolution) (*MergeResult, error) {
+	// Build resolution map
+	resolutionMap := make(map[string]string)
+	for _, r := range resolutions {
+		resolutionMap[r.Namespace] = r.Keep
+	}
+
+	var result MergeResult
+	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		now := time.Now()
+
+		// 1. Get all BODY users from source account
+		var sourceBodyUsers []struct {
+			UserID            string
+			Namespace         string
+			ProviderType      *string
+			ProviderAccountID *string
+		}
+		if err := tx.Raw(`
+			SELECT u.id as user_id, u.namespace, u.provider_type, u.provider_account_id
+			FROM users u
+			JOIN account_users au ON au.user_id = u.id
+			WHERE au.account_id = ? AND u.user_type = 'BODY' AND u.orphaned = FALSE
+		`, sourceAccountID).Scan(&sourceBodyUsers).Error; err != nil {
+			return err
+		}
+
+		// 2. Get all BODY users from target account for conflict detection
+		var targetBodyUsers []struct {
+			UserID    string
+			Namespace string
+		}
+		if err := tx.Raw(`
+			SELECT u.id as user_id, u.namespace
+			FROM users u
+			JOIN account_users au ON au.user_id = u.id
+			WHERE au.account_id = ? AND u.user_type = 'BODY' AND u.orphaned = FALSE
+		`, targetAccountID).Scan(&targetBodyUsers).Error; err != nil {
+			return err
+		}
+
+		targetNamespaceUserMap := make(map[string]string)
+		for _, u := range targetBodyUsers {
+			targetNamespaceUserMap[u.Namespace] = u.UserID
+		}
+
+		// 3. Create MERGE transaction
+		transactionID := models.LegitID()
+		description := fmt.Sprintf("merged account %s into %s", sourceAccountID, targetAccountID)
+		if err := tx.Exec(`
+			INSERT INTO account_transactions(id, account_id, action, description, created_at)
+			VALUES(?, ?, ?, ?, ?)
+		`, transactionID, targetAccountID, "MERGE", description, now).Error; err != nil {
+			return fmt.Errorf("failed to record merge transaction: %w", err)
+		}
+
+		// 4. Process each source BODY user
+		for _, sourceUser := range sourceBodyUsers {
+			targetUserID, hasConflict := targetNamespaceUserMap[sourceUser.Namespace]
+
+			if hasConflict {
+				// Check if resolution is provided
+				resolution, hasResolution := resolutionMap[sourceUser.Namespace]
+				if !hasResolution {
+					return fmt.Errorf("conflict in namespace %s requires resolution", sourceUser.Namespace)
+				}
+
+				var winningUserID, losingUserID string
+				var losingProviderType, losingProviderAccountID *string
+
+				if resolution == "SOURCE" {
+					// Keep source as primary
+					winningUserID = sourceUser.UserID
+					losingUserID = targetUserID
+
+					// Get target's platform info for transfer
+					var targetPlatform struct {
+						ProviderType      *string
+						ProviderAccountID *string
+					}
+					tx.Raw(`SELECT provider_type, provider_account_id FROM users WHERE id = ?`, targetUserID).Scan(&targetPlatform)
+					losingProviderType = targetPlatform.ProviderType
+					losingProviderAccountID = targetPlatform.ProviderAccountID
+
+					// Move source BODY to target account
+					if err := tx.Exec(`UPDATE account_users SET account_id = ? WHERE user_id = ?`,
+						targetAccountID, sourceUser.UserID).Error; err != nil {
+						return fmt.Errorf("failed to move user: %w", err)
+					}
+				} else { // TARGET
+					// Keep target as primary
+					winningUserID = targetUserID
+					losingUserID = sourceUser.UserID
+					losingProviderType = sourceUser.ProviderType
+					losingProviderAccountID = sourceUser.ProviderAccountID
+				}
+
+				// Transfer platform_users record from losing user to winning user (AccelByte approach)
+				// This allows both platforms to login and get the winning user ID
+				if losingProviderType != nil && losingProviderAccountID != nil {
+					if err := tx.Exec(`
+						UPDATE platform_users SET user_id = ?
+						WHERE user_id = ? AND namespace = ? AND platform_id = ?
+					`, winningUserID, losingUserID, sourceUser.Namespace, *losingProviderType).Error; err != nil {
+						// Non-fatal: platform_users record might not exist
+					}
+				}
+
+				// Orphan the losing user (no longer needed for platform login)
+				if err := tx.Exec(`UPDATE users SET orphaned = TRUE WHERE id = ?`, losingUserID).Error; err != nil {
+					return fmt.Errorf("failed to orphan losing user: %w", err)
+				}
+				result.OrphanedUsers = append(result.OrphanedUsers, losingUserID)
+
+				result.MergedNamespaces = append(result.MergedNamespaces, sourceUser.Namespace)
+
+				// Record history
+				if err := tx.Exec(`
+					INSERT INTO account_transaction_histories(id, transaction_id, user_id, account_id, from_account_id, to_account_id, provider_type, provider_account_id, created_at)
+					VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+				`, models.LegitID(), transactionID, winningUserID, targetAccountID, sourceAccountID, targetAccountID, sourceUser.ProviderType, sourceUser.ProviderAccountID, now).Error; err != nil {
+					return fmt.Errorf("failed to record history: %w", err)
+				}
+			} else {
+				// No conflict: move source BODY to target account
+				if err := tx.Exec(`UPDATE account_users SET account_id = ? WHERE user_id = ?`,
+					targetAccountID, sourceUser.UserID).Error; err != nil {
+					return fmt.Errorf("failed to move user: %w", err)
+				}
+				result.MergedNamespaces = append(result.MergedNamespaces, sourceUser.Namespace)
+
+				// Record history
+				if err := tx.Exec(`
+					INSERT INTO account_transaction_histories(id, transaction_id, user_id, account_id, from_account_id, to_account_id, provider_type, provider_account_id, created_at)
+					VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+				`, models.LegitID(), transactionID, sourceUser.UserID, targetAccountID, sourceAccountID, targetAccountID, sourceUser.ProviderType, sourceUser.ProviderAccountID, now).Error; err != nil {
+					return fmt.Errorf("failed to record history: %w", err)
+				}
+			}
+		}
+
+		// 5. Re-evaluate source account type (should become ORPHAN if no BODY users left)
+		var sourceUserCount struct{ Count int64 }
+		if err := tx.Raw(`
+			SELECT COUNT(*) as count FROM users u
+			JOIN account_users au ON au.user_id = u.id
+			WHERE au.account_id = ? AND u.user_type = 'BODY' AND u.orphaned = FALSE
+		`, sourceAccountID).Scan(&sourceUserCount).Error; err != nil {
+			return err
+		}
+
+		newSourceType := models.AccountOrphan
+		if sourceUserCount.Count > 0 {
+			// Still has some BODY users (possibly HEAD too)
+			var hasHead int64
+			tx.Raw(`SELECT COUNT(*) FROM users u JOIN account_users au ON au.user_id = u.id WHERE au.account_id = ? AND u.user_type = 'HEAD'`, sourceAccountID).Scan(&hasHead)
+			if hasHead > 0 {
+				newSourceType = models.AccountFull
+				if sourceUserCount.Count == 0 {
+					newSourceType = models.AccountHead
+				}
+			} else {
+				newSourceType = models.AccountHeadless
+			}
+		}
+		if err := tx.Exec(`UPDATE accounts SET account_type = ? WHERE id = ?`, string(newSourceType), sourceAccountID).Error; err != nil {
+			return fmt.Errorf("failed to update source account type: %w", err)
+		}
+
+		// 6. Re-evaluate target account type (should be FULL if has BODY users)
+		var targetBodyCount struct{ Count int64 }
+		if err := tx.Raw(`
+			SELECT COUNT(*) as count FROM users u
+			JOIN account_users au ON au.user_id = u.id
+			WHERE au.account_id = ? AND u.user_type = 'BODY' AND u.orphaned = FALSE
+		`, targetAccountID).Scan(&targetBodyCount).Error; err != nil {
+			return err
+		}
+
+		if targetBodyCount.Count > 0 {
+			if err := tx.Exec(`UPDATE accounts SET account_type = ? WHERE id = ?`, string(models.AccountFull), targetAccountID).Error; err != nil {
+				return fmt.Errorf("failed to update target account type: %w", err)
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
 }

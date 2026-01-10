@@ -93,6 +93,33 @@ export interface LoginHistory {
   failure_reason?: string;
 }
 
+export type AccountTransactionAction = 'LINK' | 'UNLINK';
+
+export interface AccountTransactionHistory {
+  id: string;
+  user_id?: string;
+  account_id?: string;
+  from_account_id?: string;
+  to_account_id?: string;
+  provider_type?: string;
+  provider_account_id?: string;
+  created_at: string;
+}
+
+export interface AccountTransaction {
+  id: string;
+  account_id: string;
+  action: AccountTransactionAction;
+  namespace: string;
+  description?: string;
+  created_at: string;
+  histories?: AccountTransactionHistory[];
+}
+
+// Legacy alias for backwards compatibility
+export type LinkAction = AccountTransactionAction;
+export type LinkHistory = AccountTransaction;
+
 // Role types
 export type RoleType = 'USER' | 'CLIENT';
 
