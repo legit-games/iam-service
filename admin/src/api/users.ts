@@ -1,5 +1,5 @@
 import apiClient from './client';
-import { Account, User, LoginHistory, SignupStats } from './types';
+import { Account, User, LoginHistory, LinkHistory, SignupStats } from './types';
 
 export type SearchType = 'user_id' | 'account_id' | 'username';
 
@@ -85,6 +85,10 @@ export const userApi = {
   // Get login history for a user
   getLoginHistory: (userId: string, params?: { limit?: number; offset?: number }) =>
     apiClient.get<{ login_history: LoginHistory[]; count: number }>(`/iam/v1/admin/users/${userId}/login-history`, { params }),
+
+  // Get link history for an account
+  getLinkHistory: (accountId: string) =>
+    apiClient.get<LinkHistory[]>(`/iam/v1/admin/users/${accountId}/link-history`),
 
   // Get signup statistics for dashboard (namespace-scoped)
   getSignupStats: (namespace: string) =>

@@ -1,6 +1,6 @@
 # Simple Makefile to manage local PostgreSQL via Docker Compose
 
-.PHONY: db db-down db-ps db-logs db-restart db-wait env run dev swagger-open register valkey valkey-down valkey-ps valkey-logs dev-valkey build-server run-server build-client run-client examples kill-server build test admin-install admin-dev admin-build admin-clean dev-admin build-with-admin
+.PHONY: db db-down db-ps db-logs db-restart db-wait env run dev swagger-open register valkey valkey-down valkey-ps valkey-logs dev-valkey build-server run-server build-client run-client examples kill-server build test admin-install admin-dev admin-build admin-clean dev-admin build-with-admin linktest linktest-build linktest-dev linktest-kill
 
 REG_DB_DSN_DEFAULT=postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable
 VALKEY_ADDR_DEFAULT=127.0.0.1:6379
@@ -188,3 +188,38 @@ build-with-admin: admin-embed
 	@echo "Building server with embedded admin console..."
 	cd example/server && go build -o ../../bin/server-with-admin server.go
 	@echo "Server built at bin/server-with-admin"
+
+# ==========================================
+# Account Linking Test Application
+# ==========================================
+
+LINKTEST_PORT?=8088
+
+# Build linktest binary
+linktest-build:
+	@echo "Building linktest..."
+	@mkdir -p bin
+	go build -o bin/linktest ./cmd/linktest
+	@echo "Linktest built at bin/linktest"
+
+# Run linktest directly with go run
+linktest:
+	@echo "Starting Account Linking Test on port $(LINKTEST_PORT)..."
+	DATABASE_URL=$(REG_DB_DSN_DEFAULT) PORT=$(LINKTEST_PORT) go run ./cmd/linktest
+
+# Run linktest with DB setup (start DB, wait, migrate, then run)
+linktest-dev: db db-wait migrate-up
+	@echo "Starting Account Linking Test (dev mode) on port $(LINKTEST_PORT)..."
+	DATABASE_URL=$(REG_DB_DSN_DEFAULT) PORT=$(LINKTEST_PORT) go run ./cmd/linktest
+
+# Kill linktest process on LINKTEST_PORT
+linktest-kill:
+	@echo "Killing linktest on port $(LINKTEST_PORT) if running..."
+	@PIDS=$$(lsof -ti tcp:$(LINKTEST_PORT)); \
+	if [ -n "$$PIDS" ]; then \
+		echo "Found PIDs: $$PIDS"; \
+		kill -9 $$PIDS || true; \
+		echo "Port $(LINKTEST_PORT) is now free."; \
+	else \
+		echo "No process found on port $(LINKTEST_PORT)."; \
+	fi

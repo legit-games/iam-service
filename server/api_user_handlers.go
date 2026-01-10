@@ -343,6 +343,12 @@ func (s *Server) HandleUnbanUserGin(c *gin.Context) {
 // - created_to: end date for created_at filter (RFC3339 format)
 // - limit: max results (default 50, max 100)
 // - offset: pagination offset (default 0)
+//
+// Namespace handling (following justice-iam-service pattern):
+// - When namespace type is 'publisher': Returns HEAD users only
+// - When namespace type is 'game': Returns BODY users for that namespace
+//   with publisher (HEAD) user's display_name and email
+// - Each account appears only once in the list regardless of how many users it has
 func (s *Server) HandleListUsersGin(c *gin.Context) {
 	if s.userStore == nil {
 		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "user store not initialized"})
@@ -369,20 +375,70 @@ func (s *Server) HandleListUsersGin(c *gin.Context) {
 	}
 
 	db := s.userStore.DB
-	var users []map[string]interface{}
 
-	query := `
-		SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at
-		FROM users u
-		JOIN account_users au ON au.user_id = u.id
-		LEFT JOIN accounts a ON au.account_id = a.id
-		WHERE 1=1`
+	// Check namespace type to determine query strategy
+	isPublisherNamespace := false
+	if ns != "" {
+		var nsType string
+		if err := db.WithContext(c.Request.Context()).Raw(`SELECT type FROM namespaces WHERE name = ?`, ns).Row().Scan(&nsType); err == nil {
+			isPublisherNamespace = (nsType == "publisher")
+		}
+	}
+
+	var users []map[string]interface{}
+	var query string
 	args := []interface{}{}
 
-	// Namespace filter
-	if ns != "" {
-		query += ` AND (u.namespace = ? OR u.namespace IS NULL)`
+	if ns != "" && !isPublisherNamespace {
+		// Game namespace: Query BODY users for specific namespace
+		// Use subquery to get HEAD user's display_name to avoid duplicates
+		query = `
+			SELECT
+				u.id,
+				au.account_id,
+				u.namespace,
+				u.user_type,
+				COALESCE(
+					(SELECT hu.display_name FROM users hu
+					 JOIN account_users hau ON hu.id = hau.user_id
+					 WHERE hau.account_id = au.account_id AND hu.user_type = 'HEAD' LIMIT 1),
+					u.display_name
+				) as display_name,
+				u.provider_type,
+				u.provider_account_id,
+				u.orphaned,
+				u.created_at,
+				u.updated_at,
+				a.email as publisher_email,
+				a.username as publisher_username,
+				a.account_type
+			FROM users u
+			JOIN account_users au ON au.user_id = u.id
+			LEFT JOIN accounts a ON au.account_id = a.id
+			WHERE u.namespace = ? AND u.user_type = 'BODY'`
 		args = append(args, ns)
+	} else {
+		// Publisher namespace or no namespace: Query HEAD users only
+		// Each account appears once through its HEAD user
+		query = `
+			SELECT
+				u.id,
+				au.account_id,
+				u.namespace,
+				u.user_type,
+				u.display_name,
+				u.provider_type,
+				u.provider_account_id,
+				u.orphaned,
+				u.created_at,
+				u.updated_at,
+				a.email as publisher_email,
+				a.username as publisher_username,
+				a.account_type
+			FROM users u
+			JOIN account_users au ON au.user_id = u.id
+			LEFT JOIN accounts a ON au.account_id = a.id
+			WHERE u.user_type = 'HEAD'`
 	}
 
 	// Keyword search based on search_type
@@ -436,6 +492,11 @@ func (s *Server) HandleListUsersGin(c *gin.Context) {
 // GetUser returns user details by ID within a namespace
 // Supports search_type query parameter: "user_id" or "account_id"
 // If no search_type is provided, searches by user ID, account ID, or username
+//
+// Namespace handling (following justice-iam-service pattern):
+// - When namespace type is 'publisher': Returns HEAD user only
+// - When namespace type is 'game': Returns the BODY user for that namespace
+//   with publisher (HEAD) user's display_name and email
 func (s *Server) HandleGetUserGin(c *gin.Context) {
 	if s.userStore == nil {
 		c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented", "error_description": "user store not initialized"})
@@ -452,53 +513,93 @@ func (s *Server) HandleGetUserGin(c *gin.Context) {
 	var user map[string]interface{}
 	db := s.userStore.DB
 
-	var query string
-	var args []interface{}
+	// Check namespace type to determine query strategy
+	isPublisherNamespace := false
+	if ns != "" {
+		var nsType string
+		if err := db.WithContext(c.Request.Context()).Raw(`SELECT type FROM namespaces WHERE name = ?`, ns).Row().Scan(&nsType); err == nil {
+			isPublisherNamespace = (nsType == "publisher")
+		}
+	}
+
+	var baseSelect string
+	var baseFrom string
+	var whereClause string
+	args := []interface{}{}
+
+	if ns != "" && !isPublisherNamespace {
+		// Game namespace: Get BODY user with publisher info
+		// Use subquery to get HEAD user's display_name to avoid duplicates
+		baseSelect = `
+			SELECT
+				u.id,
+				au.account_id,
+				u.namespace,
+				u.user_type,
+				COALESCE(
+					(SELECT hu.display_name FROM users hu
+					 JOIN account_users hau ON hu.id = hau.user_id
+					 WHERE hau.account_id = au.account_id AND hu.user_type = 'HEAD' LIMIT 1),
+					u.display_name
+				) as display_name,
+				u.provider_type,
+				u.provider_account_id,
+				u.orphaned,
+				u.created_at,
+				u.updated_at,
+				a.email as publisher_email,
+				a.username as publisher_username,
+				a.country,
+				a.account_type`
+		baseFrom = `
+			FROM users u
+			JOIN account_users au ON au.user_id = u.id
+			LEFT JOIN accounts a ON au.account_id = a.id`
+		whereClause = ` WHERE u.namespace = ? AND u.user_type = 'BODY'`
+		args = append(args, ns)
+	} else {
+		// Publisher namespace or no namespace: Get HEAD user only
+		baseSelect = `
+			SELECT
+				u.id,
+				au.account_id,
+				u.namespace,
+				u.user_type,
+				u.display_name,
+				u.provider_type,
+				u.provider_account_id,
+				u.orphaned,
+				u.created_at,
+				u.updated_at,
+				a.email as publisher_email,
+				a.username as publisher_username,
+				a.country,
+				a.account_type`
+		baseFrom = `
+			FROM users u
+			JOIN account_users au ON au.user_id = u.id
+			LEFT JOIN accounts a ON au.account_id = a.id`
+		whereClause = ` WHERE u.user_type = 'HEAD'`
+	}
 
 	// Build query based on search type
 	switch searchType {
 	case "user_id":
-		query = `
-			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at, a.email, a.country
-			FROM users u
-			JOIN account_users au ON au.user_id = u.id
-			LEFT JOIN accounts a ON au.account_id = a.id
-			WHERE u.id = ?`
-		args = []interface{}{searchID}
+		whereClause += ` AND u.id = ?`
+		args = append(args, searchID)
 	case "account_id":
-		query = `
-			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at, a.email, a.country
-			FROM users u
-			JOIN account_users au ON au.user_id = u.id
-			LEFT JOIN accounts a ON au.account_id = a.id
-			WHERE au.account_id = ?`
-		args = []interface{}{searchID}
+		whereClause += ` AND au.account_id = ?`
+		args = append(args, searchID)
 	case "username":
-		query = `
-			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at, a.email, a.country
-			FROM users u
-			JOIN account_users au ON au.user_id = u.id
-			INNER JOIN accounts a ON au.account_id = a.id
-			WHERE a.username = ?`
-		args = []interface{}{searchID}
+		whereClause += ` AND a.username = ?`
+		args = append(args, searchID)
 	default:
-		// Default: search by user ID, account ID, or username (join with accounts table)
-		query = `
-			SELECT u.id, au.account_id, u.namespace, u.user_type, u.display_name, u.provider_type, u.provider_account_id, u.orphaned, u.created_at, u.updated_at, a.email, a.country
-			FROM users u
-			JOIN account_users au ON au.user_id = u.id
-			LEFT JOIN accounts a ON au.account_id = a.id
-			WHERE (u.id = ? OR au.account_id = ? OR a.username = ?)`
-		args = []interface{}{searchID, searchID, searchID}
+		// Default: search by user ID, account ID, or username
+		whereClause += ` AND (u.id = ? OR au.account_id = ? OR a.username = ?)`
+		args = append(args, searchID, searchID, searchID)
 	}
 
-	// If namespace is provided, filter by it (include HEAD users with NULL namespace)
-	if ns != "" {
-		query += ` AND (u.namespace = ? OR u.namespace IS NULL)`
-		args = append(args, ns)
-	}
-
-	query += ` LIMIT 1`
+	query := baseSelect + baseFrom + whereClause + ` LIMIT 1`
 
 	if err := db.WithContext(c.Request.Context()).Raw(query, args...).Scan(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
