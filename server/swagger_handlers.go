@@ -365,6 +365,176 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 					},
 				},
 			},
+			// Account Linking endpoints
+			"/iam/v1/admin/users/{id}/link": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Link a HEADLESS account to a HEAD account",
+					"description": "Links a HEADLESS account to a HEAD account, making the HEAD account a FULL account. The HEADLESS account becomes ORPHAN.",
+					"tags":        []string{"Account Linking"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "HEAD account ID (target)"},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"namespace":           map[string]interface{}{"type": "string", "description": "Namespace to link"},
+							"headless_account_id": map[string]interface{}{"type": "string", "description": "HEADLESS account ID (source)"},
+						}, "required": []string{"namespace", "headless_account_id"}}}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Account linked successfully"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+						"409": map[string]interface{}{"description": "Link not eligible - conflict detected"},
+					},
+				},
+			},
+			"/iam/v1/admin/users/{id}/unlink": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Unlink a platform from an account",
+					"description": "Removes a specific platform credential from an account. Deletes from platform_users table to prevent platform login.",
+					"tags":        []string{"Account Linking"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Account ID"},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"namespace":           map[string]interface{}{"type": "string", "description": "Namespace of the platform"},
+							"provider_type":       map[string]interface{}{"type": "string", "description": "Platform provider type (e.g., google, steam)"},
+							"provider_account_id": map[string]interface{}{"type": "string", "description": "Platform account ID"},
+						}, "required": []string{"namespace", "provider_type", "provider_account_id"}}}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Platform unlinked successfully"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+						"500": map[string]interface{}{"description": "Internal server error"},
+					},
+				},
+			},
+			"/iam/v1/admin/users/{id}/link/check": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Check link eligibility",
+					"description": "Checks if a HEAD account can link a HEADLESS account. Returns eligibility status and conflict information if any.",
+					"tags":        []string{"Account Linking"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "HEAD account ID"},
+						{"name": "namespace", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Namespace to check"},
+						{"name": "headless_account_id", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "HEADLESS account ID"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Eligibility check result"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+					},
+				},
+			},
+			"/iam/v1/admin/users/{id}/platforms": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List linked platforms for an account",
+					"description": "Returns all platform accounts linked to the specified account. Can filter by namespace.",
+					"tags":        []string{"Account Linking"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Account ID"},
+						{"name": "namespace", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}, "description": "Filter by namespace"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "List of linked platforms"},
+						"500": map[string]interface{}{"description": "Internal server error"},
+					},
+				},
+			},
+			"/iam/v1/admin/users/{id}/link-code": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Generate a link code for a HEADLESS account",
+					"description": "Generates a one-time link code that can be used to link a HEADLESS account to a HEAD account. Code expires in 10 minutes.",
+					"tags":        []string{"Account Linking"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "HEADLESS account ID"},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"namespace": map[string]interface{}{"type": "string", "description": "Namespace for the link code"},
+						}, "required": []string{"namespace"}}}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Link code generated"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+						"404": map[string]interface{}{"description": "Account not found"},
+					},
+				},
+			},
+			"/iam/v1/admin/link-codes/{code}/validate": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Validate a link code",
+					"description": "Validates a link code without using it. Returns code information if valid.",
+					"tags":        []string{"Account Linking"},
+					"parameters": []map[string]interface{}{
+						{"name": "code", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Link code to validate"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Validation result"},
+					},
+				},
+			},
+			"/iam/v1/admin/users/{id}/link-with-code": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Link account using a link code",
+					"description": "Links a HEAD account to a HEADLESS account using a one-time link code.",
+					"tags":        []string{"Account Linking"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "HEAD account ID"},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"code": map[string]interface{}{"type": "string", "description": "Link code from HEADLESS account"},
+						}, "required": []string{"code"}}}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Account linked successfully"},
+						"400": map[string]interface{}{"description": "Invalid or expired code"},
+						"409": map[string]interface{}{"description": "Link not eligible - conflict detected"},
+					},
+				},
+			},
+			// Account Merge endpoints
+			"/iam/v1/admin/accounts/{id}/merge/check": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Check merge eligibility",
+					"description": "Checks if source account can be merged into target account. Returns eligibility status, conflicts, and namespaces to be merged.",
+					"tags":        []string{"Account Merge"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Target account ID"},
+						{"name": "source_account_id", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Source account ID to merge from"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Merge eligibility result"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+					},
+				},
+			},
+			"/iam/v1/admin/accounts/{id}/merge": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Merge accounts",
+					"description": "Merges source account into target account. All BODY users from source are moved to target. Requires conflict resolutions if conflicts exist.",
+					"tags":        []string{"Account Merge"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Target account ID"},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"source_account_id":    map[string]interface{}{"type": "string", "description": "Source account ID to merge from"},
+							"conflict_resolutions": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"namespace": map[string]interface{}{"type": "string"}, "keep": map[string]interface{}{"type": "string", "enum": []string{"SOURCE", "TARGET"}}}}, "description": "Resolution for each conflicting namespace"},
+						}, "required": []string{"source_account_id"}}}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Merge successful"},
+						"400": map[string]interface{}{"description": "Invalid request or merge not eligible"},
+						"409": map[string]interface{}{"description": "Conflicts require resolution"},
+					},
+				},
+			},
 		},
 		"components": map[string]interface{}{"securitySchemes": map[string]interface{}{"basicAuth": map[string]interface{}{"type": "http", "scheme": "basic"}}},
 	}
@@ -944,6 +1114,176 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 						"401": map[string]interface{}{"description": "Unauthorized or not_linked error"},
 						"403": map[string]interface{}{"description": "User banned"},
 						"503": map[string]interface{}{"description": "Platform service unavailable"},
+					},
+				},
+			},
+			// Account Linking endpoints
+			"/iam/v1/admin/users/{id}/link": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Link a HEADLESS account to a HEAD account",
+					"description": "Links a HEADLESS account to a HEAD account, making the HEAD account a FULL account. The HEADLESS account becomes ORPHAN.",
+					"tags":        []string{"Account Linking"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "HEAD account ID (target)"},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"namespace":           map[string]interface{}{"type": "string", "description": "Namespace to link"},
+							"headless_account_id": map[string]interface{}{"type": "string", "description": "HEADLESS account ID (source)"},
+						}, "required": []string{"namespace", "headless_account_id"}}}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Account linked successfully"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+						"409": map[string]interface{}{"description": "Link not eligible - conflict detected"},
+					},
+				},
+			},
+			"/iam/v1/admin/users/{id}/unlink": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Unlink a platform from an account",
+					"description": "Removes a specific platform credential from an account. Deletes from platform_users table to prevent platform login.",
+					"tags":        []string{"Account Linking"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Account ID"},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"namespace":           map[string]interface{}{"type": "string", "description": "Namespace of the platform"},
+							"provider_type":       map[string]interface{}{"type": "string", "description": "Platform provider type (e.g., google, steam)"},
+							"provider_account_id": map[string]interface{}{"type": "string", "description": "Platform account ID"},
+						}, "required": []string{"namespace", "provider_type", "provider_account_id"}}}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Platform unlinked successfully"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+						"500": map[string]interface{}{"description": "Internal server error"},
+					},
+				},
+			},
+			"/iam/v1/admin/users/{id}/link/check": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Check link eligibility",
+					"description": "Checks if a HEAD account can link a HEADLESS account. Returns eligibility status and conflict information if any.",
+					"tags":        []string{"Account Linking"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "HEAD account ID"},
+						{"name": "namespace", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Namespace to check"},
+						{"name": "headless_account_id", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "HEADLESS account ID"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Eligibility check result"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+					},
+				},
+			},
+			"/iam/v1/admin/users/{id}/platforms": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List linked platforms for an account",
+					"description": "Returns all platform accounts linked to the specified account. Can filter by namespace.",
+					"tags":        []string{"Account Linking"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Account ID"},
+						{"name": "namespace", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}, "description": "Filter by namespace"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "List of linked platforms"},
+						"500": map[string]interface{}{"description": "Internal server error"},
+					},
+				},
+			},
+			"/iam/v1/admin/users/{id}/link-code": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Generate a link code for a HEADLESS account",
+					"description": "Generates a one-time link code that can be used to link a HEADLESS account to a HEAD account. Code expires in 10 minutes.",
+					"tags":        []string{"Account Linking"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "HEADLESS account ID"},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"namespace": map[string]interface{}{"type": "string", "description": "Namespace for the link code"},
+						}, "required": []string{"namespace"}}}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Link code generated"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+						"404": map[string]interface{}{"description": "Account not found"},
+					},
+				},
+			},
+			"/iam/v1/admin/link-codes/{code}/validate": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Validate a link code",
+					"description": "Validates a link code without using it. Returns code information if valid.",
+					"tags":        []string{"Account Linking"},
+					"parameters": []map[string]interface{}{
+						{"name": "code", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Link code to validate"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Validation result"},
+					},
+				},
+			},
+			"/iam/v1/admin/users/{id}/link-with-code": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Link account using a link code",
+					"description": "Links a HEAD account to a HEADLESS account using a one-time link code.",
+					"tags":        []string{"Account Linking"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "HEAD account ID"},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"code": map[string]interface{}{"type": "string", "description": "Link code from HEADLESS account"},
+						}, "required": []string{"code"}}}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Account linked successfully"},
+						"400": map[string]interface{}{"description": "Invalid or expired code"},
+						"409": map[string]interface{}{"description": "Link not eligible - conflict detected"},
+					},
+				},
+			},
+			// Account Merge endpoints
+			"/iam/v1/admin/accounts/{id}/merge/check": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Check merge eligibility",
+					"description": "Checks if source account can be merged into target account. Returns eligibility status, conflicts, and namespaces to be merged.",
+					"tags":        []string{"Account Merge"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Target account ID"},
+						{"name": "source_account_id", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Source account ID to merge from"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Merge eligibility result"},
+						"400": map[string]interface{}{"description": "Invalid request"},
+					},
+				},
+			},
+			"/iam/v1/admin/accounts/{id}/merge": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Merge accounts",
+					"description": "Merges source account into target account. All BODY users from source are moved to target. Requires conflict resolutions if conflicts exist.",
+					"tags":        []string{"Account Merge"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Target account ID"},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"source_account_id":    map[string]interface{}{"type": "string", "description": "Source account ID to merge from"},
+							"conflict_resolutions": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"namespace": map[string]interface{}{"type": "string"}, "keep": map[string]interface{}{"type": "string", "enum": []string{"SOURCE", "TARGET"}}}}, "description": "Resolution for each conflicting namespace"},
+						}, "required": []string{"source_account_id"}}}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Merge successful"},
+						"400": map[string]interface{}{"description": "Invalid request or merge not eligible"},
+						"409": map[string]interface{}{"description": "Conflicts require resolution"},
 					},
 				},
 			},
