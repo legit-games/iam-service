@@ -54,12 +54,13 @@ func (s *Server) HandleAPILogin(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	var (
-		uid  string
-		hash string
+		uid           string
+		hash          string
+		emailVerified bool
 	)
-	// Raw query via GORM
-	row := db.WithContext(r.Context()).Raw(`SELECT id, password_hash FROM accounts WHERE username=$1`, payload.Username).Row()
-	if err := row.Scan(&uid, &hash); err != nil {
+	// Raw query via GORM - also get email_verified status
+	row := db.WithContext(r.Context()).Raw(`SELECT id, password_hash, COALESCE(email_verified, FALSE) FROM accounts WHERE username=$1`, payload.Username).Row()
+	if err := row.Scan(&uid, &hash, &emailVerified); err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		return json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":             "invalid_grant",
@@ -74,9 +75,25 @@ func (s *Server) HandleAPILogin(w http.ResponseWriter, r *http.Request) error {
 		})
 	}
 
+	// Set namespace for later use
+	ns := strings.ToUpper(strings.TrimSpace(payload.Namespace))
+
+	// Check email verification status if required for this namespace
+	requireEmailVerification := true
+	if s.settingsStore != nil {
+		requireEmailVerification = s.settingsStore.IsEmailVerificationRequired(r.Context(), ns)
+	}
+	if requireEmailVerification && !emailVerified {
+		w.WriteHeader(http.StatusForbidden)
+		return json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":             "email_verification_required",
+			"error_description": "email verification is required before login",
+			"account_id":        uid,
+		})
+	}
+
 	// Set namespace in context for permission resolution
 	ctx := r.Context()
-	ns := strings.ToUpper(strings.TrimSpace(payload.Namespace))
 	ctx = context.WithValue(ctx, "ns", ns)
 
 	clientID, clientSecret, _ := s.ClientInfoHandler(r)
@@ -119,8 +136,9 @@ func (s *Server) HandleAPILoginGin(c *gin.Context) {
 		return
 	}
 	var uid, hash string
-	row := db.WithContext(c.Request.Context()).Raw(`SELECT id, password_hash FROM accounts WHERE username=$1`, payload.Username).Row()
-	if err := row.Scan(&uid, &hash); err != nil {
+	var emailVerified bool
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT id, password_hash, COALESCE(email_verified, FALSE) FROM accounts WHERE username=$1`, payload.Username).Row()
+	if err := row.Scan(&uid, &hash, &emailVerified); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_grant", "error_description": "invalid username or password"})
 		return
 	}
@@ -129,9 +147,25 @@ func (s *Server) HandleAPILoginGin(c *gin.Context) {
 		return
 	}
 
+	// Set namespace for later use
+	ns := strings.ToUpper(strings.TrimSpace(payload.Namespace))
+
+	// Check email verification status if required for this namespace
+	requireEmailVerification := true
+	if s.settingsStore != nil {
+		requireEmailVerification = s.settingsStore.IsEmailVerificationRequired(c.Request.Context(), ns)
+	}
+	if requireEmailVerification && !emailVerified {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error":             "email_verification_required",
+			"error_description": "email verification is required before login",
+			"account_id":        uid,
+		})
+		return
+	}
+
 	// Set namespace in context for permission resolution
 	ctx := c.Request.Context()
-	ns := strings.ToUpper(strings.TrimSpace(payload.Namespace))
 	ctx = context.WithValue(ctx, "ns", ns)
 
 	clientID, clientSecret, _ := s.ClientInfoHandler(c.Request)

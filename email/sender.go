@@ -99,6 +99,16 @@ type PasswordResetEmailData struct {
 	SupportEmail string
 }
 
+// EmailVerificationEmailData contains data for email verification emails
+type EmailVerificationEmailData struct {
+	To           string
+	Username     string
+	Code         string
+	ExpiresInMin int
+	AppName      string
+	SupportEmail string
+}
+
 // EmailData represents generic email data
 type EmailData struct {
 	To          string
@@ -114,6 +124,9 @@ type EmailData struct {
 type Sender interface {
 	// SendPasswordReset sends a password reset code email
 	SendPasswordReset(ctx context.Context, data PasswordResetEmailData) error
+
+	// SendEmailVerification sends an email verification code email
+	SendEmailVerification(ctx context.Context, data EmailVerificationEmailData) error
 
 	// SendEmail sends a generic email
 	SendEmail(ctx context.Context, data EmailData) error

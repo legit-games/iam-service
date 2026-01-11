@@ -20,6 +20,8 @@ import BanList from './pages/bans/BanList';
 import PlatformClientList from './pages/platforms/PlatformClientList';
 import PlatformUserList from './pages/platforms/PlatformUserList';
 import EmailSettings from './pages/settings/EmailSettings';
+import EmailVerification from './pages/settings/EmailVerification';
+import RegistrationSettings from './pages/settings/RegistrationSettings';
 
 function App() {
   const { isLoading } = useAuth();
@@ -67,6 +69,8 @@ function App() {
         <Route path="platforms/clients" element={<PlatformClientList />} />
         <Route path="platforms/users" element={<PlatformUserList />} />
         <Route path="settings/email" element={<EmailSettings />} />
+        <Route path="settings/email-verification" element={<EmailVerification />} />
+        <Route path="settings/registration" element={<RegistrationSettings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

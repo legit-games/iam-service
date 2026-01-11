@@ -216,3 +216,62 @@ func getOrDefault(m map[string]string, key, defaultValue string) string {
 	}
 	return defaultValue
 }
+
+// Setting keys for registration configuration
+const (
+	// SettingRequireEmailVerificationPrefix is the prefix for namespace-scoped email verification setting
+	// Full key format: registration.{namespace}.require_email_verification
+	SettingRequireEmailVerificationPrefix = "registration."
+	SettingRequireEmailVerificationSuffix = ".require_email_verification"
+)
+
+// RegistrationConfig holds registration configuration settings.
+type RegistrationConfig struct {
+	RequireEmailVerification bool   `json:"require_email_verification"`
+	Namespace                string `json:"namespace,omitempty"`
+}
+
+// getRegistrationSettingKey returns the namespace-scoped setting key for email verification
+func getRegistrationSettingKey(namespace string) string {
+	if namespace == "" {
+		namespace = "global"
+	}
+	return SettingRequireEmailVerificationPrefix + namespace + SettingRequireEmailVerificationSuffix
+}
+
+// GetRegistrationConfig retrieves registration configuration settings for a namespace.
+func (s *SystemSettingsStore) GetRegistrationConfig(ctx context.Context, namespace string) (*RegistrationConfig, error) {
+	key := getRegistrationSettingKey(namespace)
+	// Default to true (email verification required)
+	requireVerification := s.GetBool(ctx, key, true)
+	return &RegistrationConfig{
+		RequireEmailVerification: requireVerification,
+		Namespace:                namespace,
+	}, nil
+}
+
+// SetRegistrationConfig saves registration configuration settings for a namespace.
+func (s *SystemSettingsStore) SetRegistrationConfig(ctx context.Context, namespace string, config *RegistrationConfig) error {
+	key := getRegistrationSettingKey(namespace)
+	value := "false"
+	if config.RequireEmailVerification {
+		value = "true"
+	}
+	categoryName := "registration"
+	if namespace != "" {
+		categoryName = "registration." + namespace
+	}
+	return s.SetWithMeta(ctx, &SystemSetting{
+		Key:         key,
+		Value:       value,
+		Description: "Whether email verification is required during registration for namespace: " + namespace,
+		Category:    categoryName,
+		IsSecret:    false,
+	})
+}
+
+// IsEmailVerificationRequired checks if email verification is required for registration in a namespace.
+func (s *SystemSettingsStore) IsEmailVerificationRequired(ctx context.Context, namespace string) bool {
+	key := getRegistrationSettingKey(namespace)
+	return s.GetBool(ctx, key, true)
+}

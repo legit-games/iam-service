@@ -322,7 +322,19 @@
 
         const lowerError = ((error || '') + ' ' + (errorDesc || '')).toLowerCase();
 
-        if (lowerError.includes('ban') || lowerError.includes('suspend')) {
+        if (lowerError.includes('email_verification_required') || lowerError.includes('email verification')) {
+          headerTitle.textContent = 'Email Verification Required';
+          headerSubtitle.textContent = 'Please verify your email to continue';
+          errorTitleEl.textContent = 'Email Not Verified';
+          errorMessage.textContent = errorDesc || 'Your email address has not been verified. Please check your inbox for the verification code.';
+          errorSuggestions.innerHTML = `
+            <li>Check your email inbox for the verification code</li>
+            <li>Enter the 6-digit code to verify your email</li>
+            <li>If you didn't receive the email, you can request a new code</li>
+          `;
+          usernameInput.classList.remove('error');
+          passwordInput.classList.remove('error');
+        } else if (lowerError.includes('ban') || lowerError.includes('suspend')) {
           headerTitle.textContent = 'Account Suspended';
           headerSubtitle.textContent = 'Your account has been suspended';
           errorTitleEl.textContent = 'Account Suspended';

@@ -249,12 +249,13 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		// Try database authentication first
 		var userID string
 		var authenticated bool
+		var emailVerified bool
 
 		if globalSrv != nil {
 			if db, err := globalSrv.GetPrimaryDB(); err == nil && db != nil {
 				var accountID, passwordHash string
-				row := db.Raw("SELECT id, password_hash FROM accounts WHERE username = ?", username).Row()
-				if err := row.Scan(&accountID, &passwordHash); err == nil {
+				row := db.Raw("SELECT id, password_hash, COALESCE(email_verified, FALSE) FROM accounts WHERE username = ?", username).Row()
+				if err := row.Scan(&accountID, &passwordHash, &emailVerified); err == nil {
 					if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)) == nil {
 						userID = accountID
 						authenticated = true
@@ -267,6 +268,29 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		if !authenticated && username == "test" && password == "test" {
 			userID = "test"
 			authenticated = true
+			emailVerified = true // test user is always verified
+		}
+
+		// Check email verification before allowing login (if setting requires it)
+		// For OAuth login flow, use empty namespace which maps to "global" settings
+		requireEmailVerification := true
+		if globalSrv != nil {
+			if db, err := globalSrv.GetPrimaryDB(); err == nil && db != nil {
+				settingsStore := store.NewSystemSettingsStore(db)
+				requireEmailVerification = settingsStore.IsEmailVerificationRequired(r.Context(), "")
+			}
+		}
+		if authenticated && requireEmailVerification && !emailVerified {
+			redirectURL := "/login?error=email_verification_required&error_description=" + url.QueryEscape("Email verification is required before login. Please verify your email address.")
+			// Preserve OAuth params so the flow can continue after verification
+			if v, ok := sessionStore.Get("OAuthQuery"); ok {
+				if q, ok := v.(string); ok && q != "" {
+					redirectURL += "&" + q
+				}
+			}
+			w.Header().Set("Location", redirectURL)
+			w.WriteHeader(http.StatusFound)
+			return
 		}
 
 		if authenticated {
