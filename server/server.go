@@ -74,6 +74,7 @@ func NewServer(cfg *Config, manager oauth2.Manager) *Server {
 		s.userStore = store.NewUserStore(db)
 		s.linkCodeStore = store.NewLinkCodeStore(db)
 		s.passwordResetStore = store.NewPasswordResetStore(db)
+		s.emailVerificationStore = store.NewEmailVerificationStore(db)
 		s.settingsStore = store.NewSystemSettingsStore(db)
 		s.emailProviderStore = store.NewEmailProviderStore(db)
 	}
@@ -124,13 +125,14 @@ type Server struct {
 	RefreshTokenResolveHandler   RefreshTokenResolveHandler
 	AccessTokenResolveHandler    AccessTokenResolveHandler
 
-	nsStore            *store.NamespaceStore
-	userStore          *store.UserStore
-	linkCodeStore      *store.LinkCodeStore
-	passwordResetStore *store.PasswordResetStore
-	settingsStore      *store.SystemSettingsStore
-	emailProviderStore *store.EmailProviderStore
-	emailSender        email.Sender
+	nsStore                  *store.NamespaceStore
+	userStore                *store.UserStore
+	linkCodeStore            *store.LinkCodeStore
+	passwordResetStore       *store.PasswordResetStore
+	emailVerificationStore   *store.EmailVerificationStore
+	settingsStore            *store.SystemSettingsStore
+	emailProviderStore       *store.EmailProviderStore
+	emailSender              email.Sender
 
 	// centralized DB handles (lazy-initialized)
 	dbMu      sync.Mutex
@@ -324,6 +326,7 @@ func (s *Server) initializeDatabases() error {
 		s.userStore = store.NewUserStore(db)
 		s.linkCodeStore = store.NewLinkCodeStore(db)
 		s.passwordResetStore = store.NewPasswordResetStore(db)
+		s.emailVerificationStore = store.NewEmailVerificationStore(db)
 		s.settingsStore = store.NewSystemSettingsStore(db)
 		s.emailProviderStore = store.NewEmailProviderStore(db)
 	}

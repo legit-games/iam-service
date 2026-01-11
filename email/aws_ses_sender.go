@@ -82,6 +82,34 @@ func (s *AWSSESSender) SendPasswordReset(ctx context.Context, data PasswordReset
 	})
 }
 
+// SendEmailVerification sends an email verification code via AWS SES
+func (s *AWSSESSender) SendEmailVerification(ctx context.Context, data EmailVerificationEmailData) error {
+	appName := data.AppName
+	if appName == "" {
+		appName = s.appName
+	}
+	supportEmail := data.SupportEmail
+	if supportEmail == "" {
+		supportEmail = s.supportEmail
+	}
+
+	data.AppName = appName
+	data.SupportEmail = supportEmail
+
+	subject := fmt.Sprintf("Email Verification Code: %s", data.Code)
+	htmlBody := s.renderEmailVerificationHTML(data)
+	textBody := s.renderEmailVerificationText(data)
+
+	return s.SendEmail(ctx, EmailData{
+		To:          data.To,
+		Subject:     subject,
+		TextBody:    textBody,
+		HTMLBody:    htmlBody,
+		FromAddress: s.fromAddress,
+		FromName:    s.fromName,
+	})
+}
+
 // SendEmail sends an email via AWS SES API
 func (s *AWSSESSender) SendEmail(ctx context.Context, data EmailData) error {
 	fromAddr := data.FromAddress
@@ -303,6 +331,45 @@ func (s *AWSSESSender) renderPasswordResetText(data PasswordResetEmailData) stri
 		greeting = "Hello " + data.Username
 	}
 	return fmt.Sprintf("%s - Password Reset\n\n%s,\n\nYour code: %s\n\nExpires in %d minutes.",
+		data.AppName, greeting, data.Code, data.ExpiresInMin)
+}
+
+func (s *AWSSESSender) renderEmailVerificationHTML(data EmailVerificationEmailData) string {
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+        <h1 style="color: white; margin: 0;">%s</h1>
+    </div>
+    <div style="background: #fff; padding: 30px; border: 1px solid #e0e0e0; border-radius: 0 0 10px 10px;">
+        <h2>Verify Your Email Address</h2>
+        <p>Hello%s,</p>
+        <p>Your verification code is:</p>
+        <div style="background: #f5f5f5; padding: 20px; text-align: center; margin: 20px 0;">
+            <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #667eea;">%s</span>
+        </div>
+        <p>This code expires in %d minutes.</p>
+    </div>
+</body>
+</html>`,
+		data.AppName,
+		func() string {
+			if data.Username != "" {
+				return " " + data.Username
+			}
+			return ""
+		}(),
+		data.Code,
+		data.ExpiresInMin)
+}
+
+func (s *AWSSESSender) renderEmailVerificationText(data EmailVerificationEmailData) string {
+	greeting := "Hello"
+	if data.Username != "" {
+		greeting = "Hello " + data.Username
+	}
+	return fmt.Sprintf("%s - Email Verification\n\n%s,\n\nYour code: %s\n\nExpires in %d minutes.",
 		data.AppName, greeting, data.Code, data.ExpiresInMin)
 }
 

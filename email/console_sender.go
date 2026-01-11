@@ -23,6 +23,16 @@ func (c *ConsoleSender) SendPasswordReset(ctx context.Context, data PasswordRese
 	return nil
 }
 
+// SendEmailVerification logs the email verification code to console
+func (c *ConsoleSender) SendEmailVerification(ctx context.Context, data EmailVerificationEmailData) error {
+	log.Printf("[EMAIL] Email Verification Code")
+	log.Printf("  To: %s", data.To)
+	log.Printf("  Username: %s", data.Username)
+	log.Printf("  Code: %s", data.Code)
+	log.Printf("  Expires in: %d minutes", data.ExpiresInMin)
+	return nil
+}
+
 // SendEmail logs the email to console
 func (c *ConsoleSender) SendEmail(ctx context.Context, data EmailData) error {
 	log.Printf("[EMAIL] Sending Email")
@@ -53,6 +63,11 @@ func NewNoOpSender() Sender {
 
 // SendPasswordReset does nothing and returns nil
 func (n *NoOpSender) SendPasswordReset(ctx context.Context, data PasswordResetEmailData) error {
+	return nil
+}
+
+// SendEmailVerification does nothing and returns nil
+func (n *NoOpSender) SendEmailVerification(ctx context.Context, data EmailVerificationEmailData) error {
 	return nil
 }
 

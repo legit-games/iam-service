@@ -152,8 +152,18 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.POST("/iam/v1/public/users/reset-password", s.HandleResetPasswordGin)
 	r.GET("/iam/v1/public/users/reset-password/validate", s.HandleValidateResetCodeGin)
 
+	// Email verification endpoints (authenticated - requires bearer token)
+	adminGroup.POST("/users/request-email-verification", s.HandleRequestEmailVerificationGin)
+	adminGroup.POST("/users/verify-email", s.HandleVerifyEmailGin)
+	adminGroup.GET("/users/verify-email/validate", s.HandleValidateEmailVerificationCodeGin)
+	adminGroup.POST("/users/resend-email-verification", s.HandleResendEmailVerificationGin)
+	adminGroup.GET("/users/email-verification-status", s.HandleGetEmailVerificationStatusGin)
+
 	// System settings (admin only)
 	adminGroup.GET("/admin/settings", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAdmin}}, "ADMIN:NAMESPACE:*:SETTINGS", permission.READ), s.HandleGetAllSettingsGin)
+	// Registration settings (namespace-scoped)
+	adminGroup.GET("/admin/namespaces/:ns/settings/registration", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:SETTINGS", permission.READ), s.HandleGetRegistrationSettingsGin)
+	adminGroup.PUT("/admin/namespaces/:ns/settings/registration", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:SETTINGS", permission.UPDATE), s.HandleUpdateRegistrationSettingsGin)
 
 	// Email providers - Supported types (admin only)
 	adminGroup.GET("/admin/email-providers/types", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAdmin}}, "ADMIN:NAMESPACE:*:EMAIL", permission.READ), s.HandleGetSupportedProvidersGin)

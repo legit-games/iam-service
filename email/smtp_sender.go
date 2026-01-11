@@ -94,6 +94,40 @@ func (s *SMTPSender) SendPasswordReset(ctx context.Context, data PasswordResetEm
 	})
 }
 
+// SendEmailVerification sends an email verification code
+func (s *SMTPSender) SendEmailVerification(ctx context.Context, data EmailVerificationEmailData) error {
+	// Use provider config values if data doesn't have them
+	appName := data.AppName
+	if appName == "" {
+		appName = s.appName
+	}
+	supportEmail := data.SupportEmail
+	if supportEmail == "" {
+		supportEmail = s.supportEmail
+	}
+
+	data.AppName = appName
+	data.SupportEmail = supportEmail
+
+	subject := fmt.Sprintf("Email Verification Code: %s", data.Code)
+
+	htmlBody, err := s.renderEmailVerificationHTML(data)
+	if err != nil {
+		return fmt.Errorf("failed to render email template: %w", err)
+	}
+
+	textBody := s.renderEmailVerificationText(data)
+
+	return s.SendEmail(ctx, EmailData{
+		To:          data.To,
+		Subject:     subject,
+		TextBody:    textBody,
+		HTMLBody:    htmlBody,
+		FromAddress: s.fromAddress,
+		FromName:    s.fromName,
+	})
+}
+
 // SendEmail sends a generic email
 func (s *SMTPSender) SendEmail(ctx context.Context, data EmailData) error {
 	fromAddr := data.FromAddress
@@ -368,6 +402,85 @@ func (s *SMTPSender) renderPasswordResetText(data PasswordResetEmailData) string
 	buf.WriteString(fmt.Sprintf("    %s\n\n", data.Code))
 	buf.WriteString(fmt.Sprintf("This code will expire in %d minutes.\n\n", data.ExpiresInMin))
 	buf.WriteString("If you didn't request a password reset, you can safely ignore this email.\n\n")
+
+	if data.SupportEmail != "" {
+		buf.WriteString(fmt.Sprintf("If you need help, contact us at %s.\n", data.SupportEmail))
+	}
+
+	return buf.String()
+}
+
+func (s *SMTPSender) renderEmailVerificationHTML(data EmailVerificationEmailData) (string, error) {
+	tmpl := `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Verification</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">{{.AppName}}</h1>
+    </div>
+
+    <div style="background: #ffffff; padding: 30px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 10px 10px;">
+        <h2 style="color: #333; margin-top: 0;">Verify Your Email Address</h2>
+
+        <p>Hello{{if .Username}} <strong>{{.Username}}</strong>{{end}},</p>
+
+        <p>Please use the verification code below to confirm your email address:</p>
+
+        <div style="background: #f5f5f5; border-radius: 8px; padding: 20px; text-align: center; margin: 25px 0;">
+            <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #667eea;">{{.Code}}</span>
+        </div>
+
+        <p style="color: #666; font-size: 14px;">
+            This code will expire in <strong>{{.ExpiresInMin}} minutes</strong>.
+        </p>
+
+        <p style="color: #666; font-size: 14px;">
+            If you didn't request this verification, you can safely ignore this email.
+        </p>
+
+        <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 25px 0;">
+
+        <p style="color: #999; font-size: 12px; margin-bottom: 0;">
+            This is an automated message from {{.AppName}}.
+            {{if .SupportEmail}}If you need help, contact us at <a href="mailto:{{.SupportEmail}}" style="color: #667eea;">{{.SupportEmail}}</a>.{{end}}
+        </p>
+    </div>
+</body>
+</html>`
+
+	t, err := template.New("email_verification").Parse(tmpl)
+	if err != nil {
+		return "", err
+	}
+
+	var buf strings.Builder
+	if err := t.Execute(&buf, data); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+
+func (s *SMTPSender) renderEmailVerificationText(data EmailVerificationEmailData) string {
+	var buf strings.Builder
+
+	buf.WriteString(fmt.Sprintf("%s - Email Verification\n\n", data.AppName))
+
+	if data.Username != "" {
+		buf.WriteString(fmt.Sprintf("Hello %s,\n\n", data.Username))
+	} else {
+		buf.WriteString("Hello,\n\n")
+	}
+
+	buf.WriteString("Please use the verification code below to confirm your email address.\n\n")
+	buf.WriteString("Your verification code is:\n\n")
+	buf.WriteString(fmt.Sprintf("    %s\n\n", data.Code))
+	buf.WriteString(fmt.Sprintf("This code will expire in %d minutes.\n\n", data.ExpiresInMin))
+	buf.WriteString("If you didn't request this verification, you can safely ignore this email.\n\n")
 
 	if data.SupportEmail != "" {
 		buf.WriteString(fmt.Sprintf("If you need help, contact us at %s.\n", data.SupportEmail))

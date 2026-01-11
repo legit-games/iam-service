@@ -69,6 +69,34 @@ func (s *SendGridSender) SendPasswordReset(ctx context.Context, data PasswordRes
 	})
 }
 
+// SendEmailVerification sends an email verification code via SendGrid
+func (s *SendGridSender) SendEmailVerification(ctx context.Context, data EmailVerificationEmailData) error {
+	appName := data.AppName
+	if appName == "" {
+		appName = s.appName
+	}
+	supportEmail := data.SupportEmail
+	if supportEmail == "" {
+		supportEmail = s.supportEmail
+	}
+
+	data.AppName = appName
+	data.SupportEmail = supportEmail
+
+	subject := fmt.Sprintf("Email Verification Code: %s", data.Code)
+	htmlBody := s.renderEmailVerificationHTML(data)
+	textBody := s.renderEmailVerificationText(data)
+
+	return s.SendEmail(ctx, EmailData{
+		To:          data.To,
+		Subject:     subject,
+		TextBody:    textBody,
+		HTMLBody:    htmlBody,
+		FromAddress: s.fromAddress,
+		FromName:    s.fromName,
+	})
+}
+
 // SendEmail sends an email via SendGrid API
 func (s *SendGridSender) SendEmail(ctx context.Context, data EmailData) error {
 	fromAddr := data.FromAddress
@@ -222,6 +250,62 @@ Your password reset code is:
 This code will expire in %d minutes.
 
 If you didn't request a password reset, you can safely ignore this email.
+`,
+		data.AppName, greeting, data.Code, data.ExpiresInMin)
+}
+
+func (s *SendGridSender) renderEmailVerificationHTML(data EmailVerificationEmailData) string {
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">%s</h1>
+    </div>
+    <div style="background: #ffffff; padding: 30px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 10px 10px;">
+        <h2 style="color: #333; margin-top: 0;">Verify Your Email Address</h2>
+        <p>Hello%s,</p>
+        <p>Please use the verification code below to confirm your email address:</p>
+        <div style="background: #f5f5f5; border-radius: 8px; padding: 20px; text-align: center; margin: 25px 0;">
+            <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #667eea;">%s</span>
+        </div>
+        <p style="color: #666; font-size: 14px;">This code will expire in <strong>%d minutes</strong>.</p>
+        <p style="color: #666; font-size: 14px;">If you didn't request this, you can safely ignore this email.</p>
+    </div>
+</body>
+</html>`,
+		data.AppName,
+		func() string {
+			if data.Username != "" {
+				return " <strong>" + data.Username + "</strong>"
+			}
+			return ""
+		}(),
+		data.Code,
+		data.ExpiresInMin)
+}
+
+func (s *SendGridSender) renderEmailVerificationText(data EmailVerificationEmailData) string {
+	greeting := "Hello"
+	if data.Username != "" {
+		greeting = "Hello " + data.Username
+	}
+	return fmt.Sprintf(`%s - Email Verification
+
+%s,
+
+Please use the verification code below to confirm your email address.
+
+Your verification code is:
+
+    %s
+
+This code will expire in %d minutes.
+
+If you didn't request this verification, you can safely ignore this email.
 `,
 		data.AppName, greeting, data.Code, data.ExpiresInMin)
 }

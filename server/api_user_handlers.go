@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-oauth2/oauth2/v4/email"
 	"github.com/go-oauth2/oauth2/v4/geoip"
 	"github.com/go-oauth2/oauth2/v4/models"
 	"golang.org/x/crypto/bcrypt"
@@ -87,15 +88,18 @@ func (s *Server) HandleAPIRegisterUser(w http.ResponseWriter, r *http.Request) e
 }
 
 // HandleAPIRegisterUserGin registers a new user via Gin.
+// After successful registration, sends email verification code.
+// Accepts an optional namespace parameter to check namespace-specific settings.
 func (s *Server) HandleAPIRegisterUserGin(c *gin.Context) {
 	if s.userStore == nil {
 		NotImplementedGin(c, "user store not initialized")
 		return
 	}
 	var payload struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-		Email    string `json:"email"`
+		Username  string `json:"username"`
+		Password  string `json:"password"`
+		Email     string `json:"email"`
+		Namespace string `json:"namespace"` // Optional: used to check namespace-specific registration settings
 	}
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "invalid JSON payload"})
@@ -156,7 +160,67 @@ func (s *Server) HandleAPIRegisterUserGin(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": fmt.Sprintf("create account: %v", err)})
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"user_id": userID})
+
+	// Check if email verification is required for the specified namespace
+	namespace := strings.ToUpper(strings.TrimSpace(payload.Namespace))
+	requireEmailVerification := true
+	if s.settingsStore != nil {
+		requireEmailVerification = s.settingsStore.IsEmailVerificationRequired(c.Request.Context(), namespace)
+	}
+
+	// If email verification is not required, mark email as verified immediately
+	if !requireEmailVerification {
+		_ = s.userStore.MarkAccountEmailVerified(c.Request.Context(), accountID)
+		c.JSON(http.StatusCreated, gin.H{
+			"user_id":                     userID,
+			"email_verification_required": false,
+		})
+		return
+	}
+
+	// Send email verification code
+	response := gin.H{
+		"user_id":                     userID,
+		"email_verification_required": true,
+	}
+
+	if s.emailVerificationStore != nil {
+		// Use empty namespace for global account verification
+		namespaceID := ""
+		result, err := s.emailVerificationStore.CreateVerificationCode(c.Request.Context(), accountID, payload.Email, namespaceID)
+		if err == nil && result.Code != nil {
+			// Send verification email
+			expiresInSecs := int(s.emailVerificationStore.Config.CodeTTL.Seconds())
+			expiresInMin := expiresInSecs / 60
+
+			// Try to get namespace-specific sender, fall back to console sender
+			sender := s.emailSender
+			if s.emailProviderStore != nil && namespaceID != "" {
+				if nsSender, err := s.emailProviderStore.GetSender(c.Request.Context(), namespaceID); err == nil {
+					sender = nsSender
+				}
+			}
+
+			if sender != nil {
+				emailData := email.EmailVerificationEmailData{
+					To:           payload.Email,
+					Username:     payload.Username,
+					Code:         result.Code.Code,
+					ExpiresInMin: expiresInMin,
+					AppName:      "OAuth2 Service",
+					SupportEmail: "",
+				}
+				if err := sender.SendEmailVerification(c.Request.Context(), emailData); err != nil {
+					// Log error but don't fail registration
+					// User can resend verification later
+				}
+			}
+
+			response["expires_in_secs"] = expiresInSecs
+		}
+	}
+
+	c.JSON(http.StatusCreated, response)
 }
 
 // isValidEmail performs basic email format validation

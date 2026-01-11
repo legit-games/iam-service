@@ -76,8 +76,16 @@ const menuItems = [
     label: 'Settings',
     children: [
       {
+        key: '/settings/registration',
+        label: 'Registration',
+      },
+      {
         key: '/settings/email',
-        label: 'Email',
+        label: 'Email Providers',
+      },
+      {
+        key: '/settings/email-verification',
+        label: 'Email Verification',
       },
     ],
   },

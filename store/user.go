@@ -602,6 +602,51 @@ func (s *UserStore) UpdateAccountCountryIfEmpty(ctx context.Context, accountID s
 	).Error
 }
 
+// MarkAccountEmailVerified marks the account's email as verified.
+func (s *UserStore) MarkAccountEmailVerified(ctx context.Context, accountID string) error {
+	if accountID == "" {
+		return nil
+	}
+	now := time.Now().UTC()
+	return s.DB.WithContext(ctx).Exec(
+		`UPDATE accounts SET email_verified = TRUE, email_verified_at = ? WHERE id = ?`,
+		now, accountID,
+	).Error
+}
+
+// IsAccountEmailVerified checks if the account's email is verified.
+func (s *UserStore) IsAccountEmailVerified(ctx context.Context, accountID string) (bool, error) {
+	if accountID == "" {
+		return false, nil
+	}
+	var verified bool
+	err := s.DB.WithContext(ctx).Raw(
+		`SELECT COALESCE(email_verified, FALSE) FROM accounts WHERE id = ?`,
+		accountID,
+	).Row().Scan(&verified)
+	if err != nil {
+		return false, err
+	}
+	return verified, nil
+}
+
+// GetAccountEmailVerificationStatus returns the email verification status for an account.
+func (s *UserStore) GetAccountEmailVerificationStatus(ctx context.Context, accountID string) (verified bool, verifiedAt *time.Time, err error) {
+	if accountID == "" {
+		return false, nil, nil
+	}
+	var v bool
+	var vat *time.Time
+	err = s.DB.WithContext(ctx).Raw(
+		`SELECT COALESCE(email_verified, FALSE), email_verified_at FROM accounts WHERE id = ?`,
+		accountID,
+	).Row().Scan(&v, &vat)
+	if err != nil {
+		return false, nil, err
+	}
+	return v, vat, nil
+}
+
 // LinkConflictInfo contains information about conflicting platforms for merge.
 type LinkConflictInfo struct {
 	Namespace               string `json:"namespace"`

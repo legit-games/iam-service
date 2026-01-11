@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-oauth2/oauth2/v4/store"
 )
 
 // GetAllSettingsResponse represents all settings by category.
@@ -56,4 +57,81 @@ func (s *Server) HandleGetAllSettingsGin(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, GetAllSettingsResponse{Settings: grouped})
+}
+
+// RegistrationSettingsResponse represents registration-related settings.
+type RegistrationSettingsResponse struct {
+	RequireEmailVerification bool   `json:"require_email_verification"`
+	Namespace                string `json:"namespace"`
+}
+
+// HandleGetRegistrationSettingsGin retrieves registration settings for a namespace.
+// GET /iam/v1/admin/namespaces/:ns/settings/registration
+func (s *Server) HandleGetRegistrationSettingsGin(c *gin.Context) {
+	if s.settingsStore == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":             "service_unavailable",
+			"error_description": "Settings store not configured",
+		})
+		return
+	}
+
+	namespace := c.Param("ns")
+	ctx := c.Request.Context()
+	config, err := s.settingsStore.GetRegistrationConfig(ctx, namespace)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "internal_error",
+			"error_description": "Failed to retrieve registration settings",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, RegistrationSettingsResponse{
+		RequireEmailVerification: config.RequireEmailVerification,
+		Namespace:                namespace,
+	})
+}
+
+// HandleUpdateRegistrationSettingsGin updates registration settings for a namespace.
+// PUT /iam/v1/admin/namespaces/:ns/settings/registration
+func (s *Server) HandleUpdateRegistrationSettingsGin(c *gin.Context) {
+	if s.settingsStore == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":             "service_unavailable",
+			"error_description": "Settings store not configured",
+		})
+		return
+	}
+
+	namespace := c.Param("ns")
+	var req struct {
+		RequireEmailVerification bool `json:"require_email_verification"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_request",
+			"error_description": "Invalid request body",
+		})
+		return
+	}
+
+	ctx := c.Request.Context()
+	config := &store.RegistrationConfig{
+		RequireEmailVerification: req.RequireEmailVerification,
+		Namespace:                namespace,
+	}
+	if err := s.settingsStore.SetRegistrationConfig(ctx, namespace, config); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":             "internal_error",
+			"error_description": "Failed to update registration settings",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":                    true,
+		"namespace":                  namespace,
+		"require_email_verification": req.RequireEmailVerification,
+	})
 }

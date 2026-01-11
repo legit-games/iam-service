@@ -559,6 +559,8 @@ func (s *Server) HandlePlatformAuthenticateGin(c *gin.Context) {
 		// Update account email and country from platform if empty
 		if platformUserInfo.Email != "" {
 			_ = userStore.UpdateAccountEmailIfEmpty(c.Request.Context(), userID, platformUserInfo.Email)
+			// Mark email as verified since it came from a trusted platform (Google, etc.)
+			_ = userStore.MarkAccountEmailVerified(c.Request.Context(), userID)
 		}
 		if countryCode != "" {
 			_ = userStore.UpdateAccountCountryIfEmpty(c.Request.Context(), userID, countryCode)
@@ -578,6 +580,8 @@ func (s *Server) HandlePlatformAuthenticateGin(c *gin.Context) {
 		// Update account email and country from platform
 		if platformUserInfo.Email != "" {
 			_ = userStore.UpdateAccountEmailIfEmpty(c.Request.Context(), accountID, platformUserInfo.Email)
+			// Mark email as verified since it came from a trusted platform (Google, etc.)
+			_ = userStore.MarkAccountEmailVerified(c.Request.Context(), accountID)
 		}
 		if countryCode != "" {
 			_ = userStore.UpdateAccountCountryIfEmpty(c.Request.Context(), accountID, countryCode)
@@ -853,6 +857,8 @@ func (s *Server) HandlePlatformTokenGin(c *gin.Context) {
 		// Update account email and country from platform if empty
 		if platformUserInfo.Email != "" {
 			_ = userStore.UpdateAccountEmailIfEmpty(c.Request.Context(), userID, platformUserInfo.Email)
+			// Mark email as verified since it came from a trusted platform (Google, etc.)
+			_ = userStore.MarkAccountEmailVerified(c.Request.Context(), userID)
 		}
 		if countryCode != "" {
 			_ = userStore.UpdateAccountCountryIfEmpty(c.Request.Context(), userID, countryCode)
@@ -886,6 +892,8 @@ func (s *Server) HandlePlatformTokenGin(c *gin.Context) {
 		// Update account email and country from platform
 		if platformUserInfo.Email != "" {
 			_ = userStore.UpdateAccountEmailIfEmpty(c.Request.Context(), accountID, platformUserInfo.Email)
+			// Mark email as verified since it came from a trusted platform (Google, etc.)
+			_ = userStore.MarkAccountEmailVerified(c.Request.Context(), accountID)
 		}
 		if countryCode != "" {
 			_ = userStore.UpdateAccountCountryIfEmpty(c.Request.Context(), accountID, countryCode)
