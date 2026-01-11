@@ -26,6 +26,9 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 			"/oauth/token":               s.swaggerTokenPath(),
 			"/oauth/introspect":          s.swaggerIntrospectPath(),
 			"/oauth/revoke":              s.swaggerRevokePath(),
+			"/oauth/revocationlist":      s.swaggerRevocationListPath(),
+			"/oauth/revoke/check":        s.swaggerRevokeCheckPath(),
+			"/oauth/revoke/token":        s.swaggerRevokeTokenPath(),
 			"/api/login":                 s.swaggerAPILoginPath(),
 			"/api/register":              s.swaggerRegisterUserPath(),
 			"/iam/v1/public/users":       s.swaggerRegisterUserPath(),
@@ -144,6 +147,67 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 						{"name": "active", "in": "query", "required": false, "schema": map[string]interface{}{"type": "boolean"}},
 					},
 					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Bans list"}, "401": map[string]interface{}{"description": "Unauthorized"}},
+				},
+			},
+			// User token revocation endpoints
+			"/iam/v1/admin/namespaces/{ns}/revoke/users/{userId}": map[string]interface{}{
+				"post": map[string]interface{}{
+					"tags":        []string{"IAM Admin", "Token Revocation"},
+					"summary":     "Revoke all tokens for a user",
+					"description": "Revokes all tokens for a specific user. All tokens issued before this point will be considered invalid. Requires ADMIN:NAMESPACE:{ns}:USER:{userId} UPDATE permission.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Namespace (uppercase A–Z only)."},
+						{"name": "userId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "User ID"},
+					},
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"reason":     map[string]interface{}{"type": "string", "description": "Reason for revocation"},
+							"expires_in": map[string]interface{}{"type": "integer", "description": "Expiration time in seconds (0 = default TTL)"},
+						}}}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "User tokens revoked successfully", "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"success":    map[string]interface{}{"type": "boolean"},
+							"user_id":    map[string]interface{}{"type": "string"},
+							"revoked_at": map[string]interface{}{"type": "string", "format": "date-time"},
+							"expires_at": map[string]interface{}{"type": "string", "format": "date-time"},
+							"message":    map[string]interface{}{"type": "string"},
+						}}}}},
+						"401": map[string]interface{}{"description": "Unauthorized"},
+					},
+				},
+				"delete": map[string]interface{}{
+					"tags":        []string{"IAM Admin", "Token Revocation"},
+					"summary":     "Remove user revocation",
+					"description": "Removes the revocation for a user, allowing their tokens to be valid again. Requires ADMIN:NAMESPACE:{ns}:USER:{userId} DELETE permission.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Namespace (uppercase A–Z only)."},
+						{"name": "userId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "User ID"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "User revocation removed"},
+						"401": map[string]interface{}{"description": "Unauthorized"},
+					},
+				},
+			},
+			"/iam/v1/admin/namespaces/{ns}/revoke/users/{userId}/status": map[string]interface{}{
+				"get": map[string]interface{}{
+					"tags":        []string{"IAM Admin", "Token Revocation"},
+					"summary":     "Check user revocation status",
+					"description": "Checks if a user's tokens are currently revoked. Requires ADMIN:NAMESPACE:{ns}:USER:{userId} READ permission.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Namespace (uppercase A–Z only)."},
+						{"name": "userId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "User ID"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "User revocation status", "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"user_id":    map[string]interface{}{"type": "string"},
+							"revoked":    map[string]interface{}{"type": "boolean"},
+							"revoked_at": map[string]interface{}{"type": "string", "format": "date-time"},
+						}}}}},
+						"401": map[string]interface{}{"description": "Unauthorized"},
+					},
 				},
 			},
 			// Account-level ban endpoints
@@ -836,6 +900,9 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 			"/oauth/token":               s.swaggerTokenPath(),
 			"/oauth/introspect":          s.swaggerIntrospectPath(),
 			"/oauth/revoke":              s.swaggerRevokePath(),
+			"/oauth/revocationlist":      s.swaggerRevocationListPath(),
+			"/oauth/revoke/check":        s.swaggerRevokeCheckPath(),
+			"/oauth/revoke/token":        s.swaggerRevokeTokenPath(),
 			"/api/login":                 s.swaggerAPILoginPath(),
 			"/api/register":              s.swaggerRegisterUserPath(),
 			"/iam/v1/public/users":       s.swaggerRegisterUserPath(),
@@ -953,6 +1020,67 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 						{"name": "active", "in": "query", "required": false, "schema": map[string]interface{}{"type": "boolean"}},
 					},
 					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Bans list"}, "401": map[string]interface{}{"description": "Unauthorized"}},
+				},
+			},
+			// User token revocation endpoints
+			"/iam/v1/admin/namespaces/{ns}/revoke/users/{userId}": map[string]interface{}{
+				"post": map[string]interface{}{
+					"tags":        []string{"IAM Admin", "Token Revocation"},
+					"summary":     "Revoke all tokens for a user",
+					"description": "Revokes all tokens for a specific user. All tokens issued before this point will be considered invalid. Requires ADMIN:NAMESPACE:{ns}:USER:{userId} UPDATE permission.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Namespace (uppercase A–Z only)."},
+						{"name": "userId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "User ID"},
+					},
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"reason":     map[string]interface{}{"type": "string", "description": "Reason for revocation"},
+							"expires_in": map[string]interface{}{"type": "integer", "description": "Expiration time in seconds (0 = default TTL)"},
+						}}}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "User tokens revoked successfully", "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"success":    map[string]interface{}{"type": "boolean"},
+							"user_id":    map[string]interface{}{"type": "string"},
+							"revoked_at": map[string]interface{}{"type": "string", "format": "date-time"},
+							"expires_at": map[string]interface{}{"type": "string", "format": "date-time"},
+							"message":    map[string]interface{}{"type": "string"},
+						}}}}},
+						"401": map[string]interface{}{"description": "Unauthorized"},
+					},
+				},
+				"delete": map[string]interface{}{
+					"tags":        []string{"IAM Admin", "Token Revocation"},
+					"summary":     "Remove user revocation",
+					"description": "Removes the revocation for a user, allowing their tokens to be valid again. Requires ADMIN:NAMESPACE:{ns}:USER:{userId} DELETE permission.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Namespace (uppercase A–Z only)."},
+						{"name": "userId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "User ID"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "User revocation removed"},
+						"401": map[string]interface{}{"description": "Unauthorized"},
+					},
+				},
+			},
+			"/iam/v1/admin/namespaces/{ns}/revoke/users/{userId}/status": map[string]interface{}{
+				"get": map[string]interface{}{
+					"tags":        []string{"IAM Admin", "Token Revocation"},
+					"summary":     "Check user revocation status",
+					"description": "Checks if a user's tokens are currently revoked. Requires ADMIN:NAMESPACE:{ns}:USER:{userId} READ permission.",
+					"parameters": []map[string]interface{}{
+						{"name": "ns", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Namespace (uppercase A–Z only)."},
+						{"name": "userId", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "User ID"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "User revocation status", "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"user_id":    map[string]interface{}{"type": "string"},
+							"revoked":    map[string]interface{}{"type": "boolean"},
+							"revoked_at": map[string]interface{}{"type": "string", "format": "date-time"},
+						}}}}},
+						"401": map[string]interface{}{"description": "Unauthorized"},
+					},
 				},
 			},
 			// Account-level ban endpoints
@@ -1621,4 +1749,151 @@ func (s *Server) HandleSwaggerUIGin(c *gin.Context) {
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.Status(http.StatusOK)
 	_, _ = c.Writer.Write([]byte(html))
+}
+
+// swaggerRevocationListPath returns the OpenAPI path definition for GET /oauth/revocationlist.
+func (s *Server) swaggerRevocationListPath() map[string]interface{} {
+	return map[string]interface{}{
+		"get": map[string]interface{}{
+			"tags":        []string{"OAuth2.0", "Token Revocation"},
+			"summary":     "Get token revocation list",
+			"operationId": "getRevocationList",
+			"description": "Returns a list of revoked users and revoked tokens in Bloom filter format. " +
+				"Clients can periodically fetch this list to validate tokens locally. " +
+				"The Bloom filter uses MurmurHash3 algorithm for hashing the values.",
+			"responses": map[string]interface{}{
+				"200": map[string]interface{}{
+					"description": "Revocation list returned successfully",
+					"content": map[string]interface{}{
+						"application/json": map[string]interface{}{
+							"schema": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"revoked_tokens": map[string]interface{}{
+										"type":        "object",
+										"description": "Bloom filter containing revoked token hashes",
+										"properties": map[string]interface{}{
+											"m": map[string]interface{}{"type": "integer", "description": "Size of the bit array"},
+											"k": map[string]interface{}{"type": "integer", "description": "Number of hash functions"},
+											"b": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "Bit array data"},
+										},
+									},
+									"revoked_users": map[string]interface{}{
+										"type":        "array",
+										"description": "List of revoked users",
+										"items": map[string]interface{}{
+											"type": "object",
+											"properties": map[string]interface{}{
+												"id":         map[string]interface{}{"type": "string", "description": "User ID"},
+												"revoked_at": map[string]interface{}{"type": "string", "format": "date-time", "description": "When the user was revoked"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				"503": map[string]interface{}{
+					"description": "Revocation service not configured",
+				},
+			},
+		},
+	}
+}
+
+// swaggerRevokeCheckPath returns the OpenAPI path definition for GET /oauth/revoke/check.
+func (s *Server) swaggerRevokeCheckPath() map[string]interface{} {
+	return map[string]interface{}{
+		"get": map[string]interface{}{
+			"tags":        []string{"OAuth2.0", "Token Revocation"},
+			"summary":     "Check if token is revoked",
+			"operationId": "checkTokenRevocation",
+			"description": "Checks if a specific token has been revoked. Also checks if the token's user has been revoked.",
+			"parameters": []map[string]interface{}{
+				{
+					"name":        "token",
+					"in":          "query",
+					"required":    true,
+					"description": "The token to check",
+					"schema":      map[string]interface{}{"type": "string"},
+				},
+			},
+			"responses": map[string]interface{}{
+				"200": map[string]interface{}{
+					"description": "Revocation status returned",
+					"content": map[string]interface{}{
+						"application/json": map[string]interface{}{
+							"schema": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"revoked":         map[string]interface{}{"type": "boolean", "description": "True if the token is revoked (either directly or via user revocation)"},
+									"token_revoked":   map[string]interface{}{"type": "boolean", "description": "True if the token itself is revoked"},
+									"user_revoked":    map[string]interface{}{"type": "boolean", "description": "True if the token's user is revoked"},
+									"user_revoked_at": map[string]interface{}{"type": "string", "format": "date-time", "description": "When the user was revoked (if applicable)"},
+								},
+							},
+						},
+					},
+				},
+				"400": map[string]interface{}{
+					"description": "Token parameter is required",
+				},
+			},
+		},
+	}
+}
+
+// swaggerRevokeTokenPath returns the OpenAPI path definition for POST /oauth/revoke/token.
+func (s *Server) swaggerRevokeTokenPath() map[string]interface{} {
+	return map[string]interface{}{
+		"post": map[string]interface{}{
+			"tags":        []string{"OAuth2.0", "Token Revocation"},
+			"summary":     "Revoke a specific token",
+			"operationId": "revokeToken",
+			"description": "Revokes a specific access or refresh token. The token will be added to the revocation list.",
+			"requestBody": map[string]interface{}{
+				"required": true,
+				"content": map[string]interface{}{
+					"application/x-www-form-urlencoded": map[string]interface{}{
+						"schema": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"token": map[string]interface{}{"type": "string", "description": "The token to revoke"},
+							},
+							"required": []string{"token"},
+						},
+					},
+					"application/json": map[string]interface{}{
+						"schema": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"token": map[string]interface{}{"type": "string", "description": "The token to revoke"},
+							},
+							"required": []string{"token"},
+						},
+					},
+				},
+			},
+			"responses": map[string]interface{}{
+				"200": map[string]interface{}{
+					"description": "Token revoked successfully",
+					"content": map[string]interface{}{
+						"application/json": map[string]interface{}{
+							"schema": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"success": map[string]interface{}{"type": "boolean"},
+									"message": map[string]interface{}{"type": "string"},
+								},
+							},
+						},
+					},
+				},
+				"400": map[string]interface{}{
+					"description": "Token is required",
+				},
+			},
+		},
+	}
 }
