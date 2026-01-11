@@ -535,6 +535,63 @@ func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, r *http.Request) error
 					},
 				},
 			},
+			// Password Reset endpoints
+			"/iam/v1/public/users/forgot-password": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Request password reset",
+					"description": "Initiates password reset flow by sending a 6-digit code to the user's email. Rate limited to 3 requests per 5 minutes per email.",
+					"tags":        []string{"Password Reset"},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"email": map[string]interface{}{"type": "string", "format": "email", "description": "Email address associated with the account"},
+						}, "required": []string{"email"}}}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Reset code sent (or account not found - same response for security)"},
+						"400": map[string]interface{}{"description": "Invalid email format"},
+						"429": map[string]interface{}{"description": "Rate limited - too many requests"},
+						"501": map[string]interface{}{"description": "Password reset not configured"},
+					},
+				},
+			},
+			"/iam/v1/public/users/reset-password/validate": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Validate reset code",
+					"description": "Validates a password reset code without consuming it. Does not increment failed attempt counter.",
+					"tags":        []string{"Password Reset"},
+					"parameters": []map[string]interface{}{
+						{"name": "email", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string", "format": "email"}, "description": "Email address"},
+						{"name": "code", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string", "pattern": "^[0-9]{6}$"}, "description": "6-digit reset code"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Validation result with valid status, reason, and remaining attempts"},
+						"400": map[string]interface{}{"description": "Missing email or code"},
+						"501": map[string]interface{}{"description": "Password reset not configured"},
+					},
+				},
+			},
+			"/iam/v1/public/users/reset-password": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Reset password",
+					"description": "Resets user password using a valid reset code. Increments failed attempt counter on wrong code (max 5 attempts, then 30-minute lockout).",
+					"tags":        []string{"Password Reset"},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"email":        map[string]interface{}{"type": "string", "format": "email", "description": "Email address"},
+							"code":         map[string]interface{}{"type": "string", "pattern": "^[0-9]{6}$", "description": "6-digit reset code"},
+							"new_password": map[string]interface{}{"type": "string", "minLength": 8, "description": "New password (minimum 8 characters)"},
+						}, "required": []string{"email", "code", "new_password"}}}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Password reset successful"},
+						"400": map[string]interface{}{"description": "Invalid request, code, or password requirements not met"},
+						"429": map[string]interface{}{"description": "Account locked due to too many failed attempts"},
+						"501": map[string]interface{}{"description": "Password reset not configured"},
+					},
+				},
+			},
 		},
 		"components": map[string]interface{}{"securitySchemes": map[string]interface{}{"basicAuth": map[string]interface{}{"type": "http", "scheme": "basic"}}},
 	}
@@ -1284,6 +1341,63 @@ func (s *Server) HandleSwaggerJSONGin(c *gin.Context) {
 						"200": map[string]interface{}{"description": "Merge successful"},
 						"400": map[string]interface{}{"description": "Invalid request or merge not eligible"},
 						"409": map[string]interface{}{"description": "Conflicts require resolution"},
+					},
+				},
+			},
+			// Password Reset endpoints
+			"/iam/v1/public/users/forgot-password": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Request password reset",
+					"description": "Initiates password reset flow by sending a 6-digit code to the user's email. Rate limited to 3 requests per 5 minutes per email.",
+					"tags":        []string{"Password Reset"},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"email": map[string]interface{}{"type": "string", "format": "email", "description": "Email address associated with the account"},
+						}, "required": []string{"email"}}}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Reset code sent (or account not found - same response for security)"},
+						"400": map[string]interface{}{"description": "Invalid email format"},
+						"429": map[string]interface{}{"description": "Rate limited - too many requests"},
+						"501": map[string]interface{}{"description": "Password reset not configured"},
+					},
+				},
+			},
+			"/iam/v1/public/users/reset-password/validate": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Validate reset code",
+					"description": "Validates a password reset code without consuming it. Does not increment failed attempt counter.",
+					"tags":        []string{"Password Reset"},
+					"parameters": []map[string]interface{}{
+						{"name": "email", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string", "format": "email"}, "description": "Email address"},
+						{"name": "code", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string", "pattern": "^[0-9]{6}$"}, "description": "6-digit reset code"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Validation result with valid status, reason, and remaining attempts"},
+						"400": map[string]interface{}{"description": "Missing email or code"},
+						"501": map[string]interface{}{"description": "Password reset not configured"},
+					},
+				},
+			},
+			"/iam/v1/public/users/reset-password": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Reset password",
+					"description": "Resets user password using a valid reset code. Increments failed attempt counter on wrong code (max 5 attempts, then 30-minute lockout).",
+					"tags":        []string{"Password Reset"},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+							"email":        map[string]interface{}{"type": "string", "format": "email", "description": "Email address"},
+							"code":         map[string]interface{}{"type": "string", "pattern": "^[0-9]{6}$", "description": "6-digit reset code"},
+							"new_password": map[string]interface{}{"type": "string", "minLength": 8, "description": "New password (minimum 8 characters)"},
+						}, "required": []string{"email", "code", "new_password"}}}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Password reset successful"},
+						"400": map[string]interface{}{"description": "Invalid request, code, or password requirements not met"},
+						"429": map[string]interface{}{"description": "Account locked due to too many failed attempts"},
+						"501": map[string]interface{}{"description": "Password reset not configured"},
 					},
 				},
 			},

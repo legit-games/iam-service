@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/go-oauth2/oauth2/v4"
+	"github.com/go-oauth2/oauth2/v4/email"
 	"github.com/go-oauth2/oauth2/v4/errors"
 	"github.com/go-oauth2/oauth2/v4/manage"
 	_ "github.com/lib/pq"
@@ -72,7 +73,14 @@ func NewServer(cfg *Config, manager oauth2.Manager) *Server {
 		s.nsStore = store.NewNamespaceStore(db)
 		s.userStore = store.NewUserStore(db)
 		s.linkCodeStore = store.NewLinkCodeStore(db)
+		s.passwordResetStore = store.NewPasswordResetStore(db)
+		s.settingsStore = store.NewSystemSettingsStore(db)
+		s.emailProviderStore = store.NewEmailProviderStore(db)
 	}
+
+	// Initialize email sender from providers or default to console
+	s.initializeEmailSenderFromProvider()
+
 	// gin routes will be registered via NewGinEngine
 
 	// Apply operator-configured refresh rotation to manager
@@ -116,9 +124,13 @@ type Server struct {
 	RefreshTokenResolveHandler   RefreshTokenResolveHandler
 	AccessTokenResolveHandler    AccessTokenResolveHandler
 
-	nsStore       *store.NamespaceStore
-	userStore     *store.UserStore
-	linkCodeStore *store.LinkCodeStore
+	nsStore            *store.NamespaceStore
+	userStore          *store.UserStore
+	linkCodeStore      *store.LinkCodeStore
+	passwordResetStore *store.PasswordResetStore
+	settingsStore      *store.SystemSettingsStore
+	emailProviderStore *store.EmailProviderStore
+	emailSender        email.Sender
 
 	// centralized DB handles (lazy-initialized)
 	dbMu      sync.Mutex
@@ -311,9 +323,23 @@ func (s *Server) initializeDatabases() error {
 		s.nsStore = store.NewNamespaceStore(db)
 		s.userStore = store.NewUserStore(db)
 		s.linkCodeStore = store.NewLinkCodeStore(db)
+		s.passwordResetStore = store.NewPasswordResetStore(db)
+		s.settingsStore = store.NewSystemSettingsStore(db)
+		s.emailProviderStore = store.NewEmailProviderStore(db)
 	}
 
+	// Initialize email sender from providers
+	s.initializeEmailSenderFromProvider()
+
 	return nil
+}
+
+// initializeEmailSenderFromProvider initializes the default email sender.
+// Note: Email sending is namespace-scoped, so actual email sending should use
+// emailProviderStore.GetSender(ctx, namespaceID) to get the namespace-specific sender.
+// This default console sender is only used as a fallback.
+func (s *Server) initializeEmailSenderFromProvider() {
+	s.emailSender = email.NewConsoleSender()
 }
 
 func (s *Server) handleError(w http.ResponseWriter, req *AuthorizeRequest, err error) error {

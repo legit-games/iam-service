@@ -5,6 +5,7 @@ import {
   KeyOutlined,
   UserOutlined,
   CloudOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 
 const { Sider } = Layout;
@@ -69,6 +70,17 @@ const menuItems = [
       },
     ],
   },
+  {
+    key: 'settings',
+    icon: <SettingOutlined />,
+    label: 'Settings',
+    children: [
+      {
+        key: '/settings/email',
+        label: 'Email',
+      },
+    ],
+  },
 ];
 
 export default function Sidebar({ collapsed, onMenuClick }: SidebarProps) {
@@ -88,6 +100,7 @@ export default function Sidebar({ collapsed, onMenuClick }: SidebarProps) {
   if (location.pathname.startsWith('/clients') || location.pathname.startsWith('/roles/clients')) openKeys.push('oauth');
   if (location.pathname.startsWith('/platforms')) openKeys.push('platforms');
   if (location.pathname.startsWith('/users') || location.pathname.startsWith('/bans') || location.pathname.startsWith('/roles/users')) openKeys.push('users');
+  if (location.pathname.startsWith('/settings')) openKeys.push('settings');
 
   return (
     <Sider
