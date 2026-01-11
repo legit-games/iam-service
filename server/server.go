@@ -78,6 +78,8 @@ func NewServer(cfg *Config, manager oauth2.Manager) *Server {
 		s.settingsStore = store.NewSystemSettingsStore(db)
 		s.emailProviderStore = store.NewEmailProviderStore(db)
 		s.revocationStore = store.NewRevocationStore(db)
+		// Start revocation cache background worker
+		s.revocationStore.StartBackgroundWorker(context.Background())
 	}
 
 	// Initialize email sender from providers or default to console
@@ -332,6 +334,8 @@ func (s *Server) initializeDatabases() error {
 		s.settingsStore = store.NewSystemSettingsStore(db)
 		s.emailProviderStore = store.NewEmailProviderStore(db)
 		s.revocationStore = store.NewRevocationStore(db)
+		// Start revocation cache background worker
+		s.revocationStore.StartBackgroundWorker(context.Background())
 	}
 
 	// Initialize email sender from providers

@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"log"
+	"sync"
 	"time"
 
 	"github.com/go-oauth2/oauth2/v4/utils/bloom"
@@ -21,15 +23,21 @@ type RevocationConfig struct {
 	BloomFilterSize uint
 	// BloomFilterHashCount is the number of hash functions for bloom filter
 	BloomFilterHashCount uint
+	// CacheRefreshInterval is how often to refresh the in-memory bloom filter cache
+	CacheRefreshInterval time.Duration
+	// UseBloomFilterOptimization enables bloom filter check before DB query
+	UseBloomFilterOptimization bool
 }
 
 // DefaultRevocationConfig returns the default configuration.
 func DefaultRevocationConfig() RevocationConfig {
 	return RevocationConfig{
-		TokenTTL:             24 * time.Hour * 7, // 7 days
-		UserRevocationTTL:    24 * time.Hour * 7, // 7 days
-		BloomFilterSize:      10000,
-		BloomFilterHashCount: 7,
+		TokenTTL:                   24 * time.Hour * 7, // 7 days
+		UserRevocationTTL:          24 * time.Hour * 7, // 7 days
+		BloomFilterSize:            10000,
+		BloomFilterHashCount:       7,
+		CacheRefreshInterval:       1 * time.Minute, // Refresh cache every minute
+		UseBloomFilterOptimization: true,
 	}
 }
 
@@ -95,22 +103,39 @@ type RevocationList struct {
 type RevocationStore struct {
 	db     *gorm.DB
 	config RevocationConfig
+
+	// In-memory cache
+	cacheMu           sync.RWMutex
+	cachedFilter      *bloom.Filter
+	cachedUsers       map[string]time.Time // userID -> revokedAt
+	cacheLastUpdated  time.Time
+	cacheInitialized  bool
+
+	// Background worker control
+	stopChan chan struct{}
+	stopped  bool
 }
 
 // NewRevocationStore creates a new RevocationStore.
 func NewRevocationStore(db *gorm.DB) *RevocationStore {
-	return &RevocationStore{
-		db:     db,
-		config: DefaultRevocationConfig(),
+	s := &RevocationStore{
+		db:          db,
+		config:      DefaultRevocationConfig(),
+		cachedUsers: make(map[string]time.Time),
+		stopChan:    make(chan struct{}),
 	}
+	return s
 }
 
 // NewRevocationStoreWithConfig creates a new RevocationStore with custom config.
 func NewRevocationStoreWithConfig(db *gorm.DB, config RevocationConfig) *RevocationStore {
-	return &RevocationStore{
-		db:     db,
-		config: config,
+	s := &RevocationStore{
+		db:          db,
+		config:      config,
+		cachedUsers: make(map[string]time.Time),
+		stopChan:    make(chan struct{}),
 	}
+	return s
 }
 
 // HashToken creates a SHA256 hash of the token for storage.
@@ -156,7 +181,26 @@ func (s *RevocationStore) IsTokenRevoked(ctx context.Context, token string) (boo
 }
 
 // IsTokenRevokedByHash checks if a token hash is in the revocation list.
+// Uses bloom filter optimization if enabled: if bloom filter says "not present",
+// the token is definitely not revoked. If it says "possibly present", we check DB.
 func (s *RevocationStore) IsTokenRevokedByHash(ctx context.Context, tokenHash string) (bool, error) {
+	// Use bloom filter optimization if enabled and cache is initialized
+	if s.config.UseBloomFilterOptimization {
+		s.cacheMu.RLock()
+		filter := s.cachedFilter
+		initialized := s.cacheInitialized
+		s.cacheMu.RUnlock()
+
+		if initialized && filter != nil {
+			// If bloom filter says "not present", definitely not revoked
+			if !filter.Test([]byte(tokenHash)) {
+				return false, nil
+			}
+			// Bloom filter says "possibly present", need to check DB (may be false positive)
+		}
+	}
+
+	// Check database
 	var count int64
 	err := s.db.WithContext(ctx).Model(&RevokedToken{}).
 		Where("token_hash = ? AND expires_at > ?", tokenHash, time.Now().UTC()).
@@ -205,7 +249,27 @@ func (s *RevocationStore) RevokeUserWithExpiry(ctx context.Context, userID, reas
 
 // IsUserRevoked checks if a user's tokens are revoked.
 // Returns the revocation time if revoked, nil otherwise.
+// Uses in-memory cache for fast lookups if cache is initialized.
 func (s *RevocationStore) IsUserRevoked(ctx context.Context, userID string) (*time.Time, error) {
+	// Check cache first if initialized
+	if s.config.UseBloomFilterOptimization {
+		s.cacheMu.RLock()
+		initialized := s.cacheInitialized
+		if initialized {
+			if revokedAt, exists := s.cachedUsers[userID]; exists {
+				s.cacheMu.RUnlock()
+				return &revokedAt, nil
+			}
+		}
+		s.cacheMu.RUnlock()
+
+		// If cache is initialized and user not in cache, they're not revoked
+		if initialized {
+			return nil, nil
+		}
+	}
+
+	// Fall back to database
 	var record RevokedUser
 	err := s.db.WithContext(ctx).
 		Where("user_id = ? AND expires_at > ?", userID, time.Now().UTC()).
@@ -477,4 +541,148 @@ func (s *RevocationStore) RemoveUserRevocation(ctx context.Context, userID strin
 // GetConfig returns the current configuration.
 func (s *RevocationStore) GetConfig() RevocationConfig {
 	return s.config
+}
+
+// RefreshCache refreshes the in-memory bloom filter and user cache.
+func (s *RevocationStore) RefreshCache(ctx context.Context) error {
+	// Build bloom filter from all active revoked tokens
+	var tokens []RevokedToken
+	err := s.db.WithContext(ctx).
+		Where("expires_at > ?", time.Now().UTC()).
+		Find(&tokens).Error
+	if err != nil {
+		return err
+	}
+
+	filter := bloom.NewWithParams(s.config.BloomFilterSize, s.config.BloomFilterHashCount)
+	for _, t := range tokens {
+		filter.Put([]byte(t.TokenHash))
+	}
+
+	// Get all active revoked users
+	var users []RevokedUser
+	err = s.db.WithContext(ctx).
+		Where("expires_at > ?", time.Now().UTC()).
+		Find(&users).Error
+	if err != nil {
+		return err
+	}
+
+	userMap := make(map[string]time.Time, len(users))
+	for _, u := range users {
+		userMap[u.UserID] = u.RevokedAt
+	}
+
+	// Update cache atomically
+	s.cacheMu.Lock()
+	s.cachedFilter = filter
+	s.cachedUsers = userMap
+	s.cacheLastUpdated = time.Now().UTC()
+	s.cacheInitialized = true
+	s.cacheMu.Unlock()
+
+	return nil
+}
+
+// StartBackgroundWorker starts the background worker that periodically
+// refreshes the cache and saves bloom filters to the database.
+func (s *RevocationStore) StartBackgroundWorker(ctx context.Context) {
+	// Initial cache refresh
+	if err := s.RefreshCache(ctx); err != nil {
+		log.Printf("revocation: initial cache refresh failed: %v", err)
+	}
+
+	go func() {
+		ticker := time.NewTicker(s.config.CacheRefreshInterval)
+		defer ticker.Stop()
+
+		// Daily bloom filter save ticker (runs at midnight)
+		bloomSaveTicker := time.NewTicker(1 * time.Hour)
+		defer bloomSaveTicker.Stop()
+		lastBloomSave := time.Now().UTC().Truncate(24 * time.Hour)
+
+		for {
+			select {
+			case <-s.stopChan:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				// Refresh cache
+				if err := s.RefreshCache(context.Background()); err != nil {
+					log.Printf("revocation: cache refresh failed: %v", err)
+				}
+			case <-bloomSaveTicker.C:
+				// Save bloom filter once per day
+				today := time.Now().UTC().Truncate(24 * time.Hour)
+				if today.After(lastBloomSave) {
+					s.cacheMu.RLock()
+					filter := s.cachedFilter
+					s.cacheMu.RUnlock()
+
+					if filter != nil {
+						// Count tokens for today
+						var count int64
+						s.db.Model(&RevokedToken{}).
+							Where("revoked_at >= ? AND revoked_at < ?", today, today.Add(24*time.Hour)).
+							Count(&count)
+
+						if err := s.SaveBloomFilter(context.Background(), today, filter, int(count)); err != nil {
+							log.Printf("revocation: bloom filter save failed: %v", err)
+						} else {
+							lastBloomSave = today
+							log.Printf("revocation: bloom filter saved for %s with %d tokens", today.Format("2006-01-02"), count)
+						}
+					}
+
+					// Also cleanup expired records
+					if err := s.CleanupExpired(context.Background()); err != nil {
+						log.Printf("revocation: cleanup expired failed: %v", err)
+					}
+				}
+			}
+		}
+	}()
+}
+
+// StopBackgroundWorker stops the background worker.
+func (s *RevocationStore) StopBackgroundWorker() {
+	if !s.stopped {
+		close(s.stopChan)
+		s.stopped = true
+	}
+}
+
+// InvalidateCache marks the cache as needing refresh.
+// Call this after adding new revocations for immediate effect.
+func (s *RevocationStore) InvalidateCache() {
+	s.cacheMu.Lock()
+	s.cacheInitialized = false
+	s.cacheMu.Unlock()
+}
+
+// IsCacheInitialized returns whether the cache has been initialized.
+func (s *RevocationStore) IsCacheInitialized() bool {
+	s.cacheMu.RLock()
+	defer s.cacheMu.RUnlock()
+	return s.cacheInitialized
+}
+
+// GetCacheStats returns cache statistics.
+func (s *RevocationStore) GetCacheStats() map[string]interface{} {
+	s.cacheMu.RLock()
+	defer s.cacheMu.RUnlock()
+
+	stats := map[string]interface{}{
+		"initialized":  s.cacheInitialized,
+		"last_updated": s.cacheLastUpdated,
+		"user_count":   len(s.cachedUsers),
+	}
+
+	if s.cachedFilter != nil {
+		stats["bloom_filter_size"] = s.cachedFilter.M()
+		stats["bloom_filter_hash_count"] = s.cachedFilter.K()
+	}
+
+	return stats
 }
