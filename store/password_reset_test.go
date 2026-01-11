@@ -94,8 +94,13 @@ func TestPasswordResetStore_CreateResetCode_ExistingCode(t *testing.T) {
 	if result2.ExistingCodeExp == nil {
 		t.Error("Should return existing code expiration")
 	}
-	if result2.ExistingCodeExp != nil && !result2.ExistingCodeExp.Equal(firstCode.ExpiresAt) {
-		t.Error("Existing code expiration should match first code")
+	// Compare truncated to second precision to handle database timestamp differences
+	if result2.ExistingCodeExp != nil {
+		exp1 := firstCode.ExpiresAt.Truncate(time.Second)
+		exp2 := result2.ExistingCodeExp.Truncate(time.Second)
+		if !exp1.Equal(exp2) {
+			t.Errorf("Existing code expiration mismatch: expected %v, got %v", exp1, exp2)
+		}
 	}
 }
 
