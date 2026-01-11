@@ -92,11 +92,43 @@ func (s *Server) HandleAPILogin(w http.ResponseWriter, r *http.Request) error {
 		})
 	}
 
+	clientID, clientSecret, _ := s.ClientInfoHandler(r)
+
+	// Check MFA status
+	if s.mfaStore != nil {
+		// Check if MFA setup is required but not configured
+		if s.isMFASetupRequired(r.Context(), uid, ns) {
+			w.WriteHeader(http.StatusForbidden)
+			return json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":             "mfa_setup_required",
+				"error_description": "MFA is required for this namespace but not configured",
+				"account_id":        uid,
+			})
+		}
+
+		// Check if MFA is enabled for this account
+		mfaRequired, mfaToken, err := s.checkMFAForLogin(r.Context(), uid, ns, clientID)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":             "server_error",
+				"error_description": fmt.Sprintf("MFA check failed: %v", err),
+			})
+		}
+		if mfaRequired {
+			w.WriteHeader(http.StatusAccepted)
+			return json.NewEncoder(w).Encode(map[string]interface{}{
+				"mfa_required": true,
+				"mfa_token":    mfaToken,
+				"expires_in":   300, // 5 minutes
+			})
+		}
+	}
+
 	// Set namespace in context for permission resolution
 	ctx := r.Context()
 	ctx = context.WithValue(ctx, "ns", ns)
 
-	clientID, clientSecret, _ := s.ClientInfoHandler(r)
 	tgr := &oauth2.TokenGenerateRequest{ClientID: clientID, ClientSecret: clientSecret, UserID: uid, Request: r}
 
 	// Use GetAccessToken to properly set up perm_resolver, roles_resolver, and user_id in context
@@ -164,11 +196,43 @@ func (s *Server) HandleAPILoginGin(c *gin.Context) {
 		return
 	}
 
+	clientID, clientSecret, _ := s.ClientInfoHandler(c.Request)
+
+	// Check MFA status
+	if s.mfaStore != nil {
+		// Check if MFA setup is required but not configured
+		if s.isMFASetupRequired(c.Request.Context(), uid, ns) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":             "mfa_setup_required",
+				"error_description": "MFA is required for this namespace but not configured",
+				"account_id":        uid,
+			})
+			return
+		}
+
+		// Check if MFA is enabled for this account
+		mfaRequired, mfaToken, err := s.checkMFAForLogin(c.Request.Context(), uid, ns, clientID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":             "server_error",
+				"error_description": fmt.Sprintf("MFA check failed: %v", err),
+			})
+			return
+		}
+		if mfaRequired {
+			c.JSON(http.StatusAccepted, gin.H{
+				"mfa_required": true,
+				"mfa_token":    mfaToken,
+				"expires_in":   300, // 5 minutes
+			})
+			return
+		}
+	}
+
 	// Set namespace in context for permission resolution
 	ctx := c.Request.Context()
 	ctx = context.WithValue(ctx, "ns", ns)
 
-	clientID, clientSecret, _ := s.ClientInfoHandler(c.Request)
 	tgr := &oauth2.TokenGenerateRequest{ClientID: clientID, ClientSecret: clientSecret, UserID: uid, Request: c.Request}
 
 	// Use GetAccessToken to properly set up perm_resolver, roles_resolver, and user_id in context

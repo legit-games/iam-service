@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -78,6 +79,8 @@ func NewServer(cfg *Config, manager oauth2.Manager) *Server {
 		s.settingsStore = store.NewSystemSettingsStore(db)
 		s.emailProviderStore = store.NewEmailProviderStore(db)
 		s.revocationStore = store.NewRevocationStore(db)
+		// Initialize MFA store with encryption key from environment
+		s.initializeMFAStore(db)
 	}
 
 	// Initialize email sender from providers or default to console
@@ -134,6 +137,7 @@ type Server struct {
 	settingsStore            *store.SystemSettingsStore
 	emailProviderStore       *store.EmailProviderStore
 	revocationStore          *store.RevocationStore
+	mfaStore                 *store.MFAStore
 	emailSender              email.Sender
 
 	// centralized DB handles (lazy-initialized)
@@ -346,6 +350,43 @@ func (s *Server) initializeDatabases() error {
 // This default console sender is only used as a fallback.
 func (s *Server) initializeEmailSenderFromProvider() {
 	s.emailSender = email.NewConsoleSender()
+}
+
+// initializeMFAStore initializes the MFA store with encryption key from config.
+// mfa.encryption_key must be a 32-byte hex-encoded string (64 characters).
+func (s *Server) initializeMFAStore(db *gorm.DB) {
+	cfg := GetConfig()
+
+	// Check if MFA is explicitly disabled
+	if !cfg.MFAEnabled() {
+		fmt.Println("mfa: MFA is disabled in config")
+		return
+	}
+
+	mfaKey := cfg.MFAEncryptionKey()
+	if mfaKey == "" {
+		// MFA not configured - skip initialization
+		fmt.Println("mfa: mfa.encryption_key not set, MFA features disabled")
+		return
+	}
+
+	keyBytes, err := hex.DecodeString(mfaKey)
+	if err != nil {
+		fmt.Printf("mfa: invalid mfa.encryption_key format (must be hex): %v\n", err)
+		return
+	}
+
+	if len(keyBytes) != 32 {
+		fmt.Printf("mfa: mfa.encryption_key must be 32 bytes (64 hex chars), got %d bytes\n", len(keyBytes))
+		return
+	}
+
+	mfaCfg := store.DefaultMFAConfig()
+	mfaCfg.EncryptionKey = keyBytes
+	mfaCfg.TOTPIssuer = cfg.MFATOTPIssuer()
+
+	s.mfaStore = store.NewMFAStoreWithConfig(db, mfaCfg)
+	fmt.Printf("mfa: MFA store initialized successfully (issuer: %s)\n", mfaCfg.TOTPIssuer)
 }
 
 func (s *Server) handleError(w http.ResponseWriter, req *AuthorizeRequest, err error) error {

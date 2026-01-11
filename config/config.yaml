@@ -24,3 +24,12 @@ seed:
   dsn: "postgres://oauth2:oauth2pass@localhost:5432/oauth2db?sslmode=disable"
   cmd: "up"
   target: 0
+
+# MFA (Multi-Factor Authentication) configuration
+mfa:
+  enabled: true
+  # 32-byte hex-encoded encryption key (64 characters)
+  # Generate with: openssl rand -hex 32
+  encryption_key: "b75ad83f9f71485ed81b9f918478284f0bd38eb6fd0016c747948587745b6c1a"
+  # Issuer name shown in authenticator apps
+  totp_issuer: "OAuth2 Admin"

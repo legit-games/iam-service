@@ -22,6 +22,7 @@ import PlatformUserList from './pages/platforms/PlatformUserList';
 import EmailSettings from './pages/settings/EmailSettings';
 import EmailVerification from './pages/settings/EmailVerification';
 import RegistrationSettings from './pages/settings/RegistrationSettings';
+import MFASettings from './pages/profile/MFASettings';
 
 function App() {
   const { isLoading } = useAuth();
@@ -71,6 +72,7 @@ function App() {
         <Route path="settings/email" element={<EmailSettings />} />
         <Route path="settings/email-verification" element={<EmailVerification />} />
         <Route path="settings/registration" element={<RegistrationSettings />} />
+        <Route path="profile/mfa" element={<MFASettings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

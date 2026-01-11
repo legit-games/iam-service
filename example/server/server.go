@@ -18,6 +18,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/go-oauth2/oauth2/v4"
 	"github.com/go-oauth2/oauth2/v4/generates"
 
 	"github.com/go-oauth2/oauth2/v4/errors"
@@ -145,6 +146,8 @@ func main() {
 	// Existing custom endpoints using net/http handlers can be wrapped for Gin
 	engine.GET("/login", func(c *gin.Context) { loginHandler(c.Writer, c.Request) })
 	engine.POST("/login", func(c *gin.Context) { loginHandler(c.Writer, c.Request) })
+	engine.GET("/login/mfa", func(c *gin.Context) { mfaVerifyHandler(c.Writer, c.Request) })
+	engine.POST("/login/mfa", func(c *gin.Context) { mfaVerifyHandler(c.Writer, c.Request) })
 	engine.GET("/auth", func(c *gin.Context) { authHandler(c.Writer, c.Request) })
 	engine.GET("/test", func(c *gin.Context) {
 		// reuse logic with net/http signature
@@ -294,6 +297,35 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if authenticated {
+			// Check if MFA is enabled for this user
+			mfaRequired := false
+			if globalSrv != nil {
+				mfaStore := globalSrv.GetMFAStore()
+				if mfaStore != nil {
+					enabled, err := mfaStore.IsMFAEnabled(r.Context(), userID)
+					if err == nil && enabled {
+						mfaRequired = true
+					}
+				}
+			}
+
+			if mfaRequired {
+				// Store pending user ID for MFA verification
+				sessionStore.Set("PendingMFAUserID", userID)
+				sessionStore.Save()
+
+				// Redirect to MFA verification page
+				redirectURL := "/login/mfa"
+				if v, ok := sessionStore.Get("OAuthQuery"); ok {
+					if q, ok := v.(string); ok && q != "" {
+						redirectURL += "?" + q
+					}
+				}
+				w.Header().Set("Location", redirectURL)
+				w.WriteHeader(http.StatusFound)
+				return
+			}
+
 			sessionStore.Set("LoggedInUserID", userID)
 			sessionStore.Save()
 
@@ -683,4 +715,350 @@ func outputHTML(w http.ResponseWriter, req *http.Request, filename string) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	http.ServeContent(w, req, filename, time.Now(), bytes.NewReader(data))
+}
+
+func mfaVerifyHandler(w http.ResponseWriter, r *http.Request) {
+	if dumpvar {
+		_ = dumpRequest(os.Stdout, "mfa-verify", r)
+	}
+	sessionStore, err := session.Start(r.Context(), w, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Check for pending MFA user
+	pendingUID, ok := sessionStore.Get("PendingMFAUserID")
+	if !ok {
+		w.Header().Set("Location", "/login")
+		w.WriteHeader(http.StatusFound)
+		return
+	}
+	userID := pendingUID.(string)
+
+	if r.Method == "POST" {
+		if r.Form == nil {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+
+		code := r.Form.Get("code")
+		codeType := r.Form.Get("code_type")
+		if codeType == "" {
+			codeType = "totp"
+		}
+
+		// Verify MFA code
+		verified := false
+		if globalSrv != nil {
+			mfaStore := globalSrv.GetMFAStore()
+			if mfaStore != nil {
+				if codeType == "backup" {
+					valid, _ := mfaStore.ValidateBackupCode(r.Context(), userID, code)
+					verified = valid
+				} else {
+					valid, _ := mfaStore.ValidateTOTPCode(r.Context(), userID, code)
+					verified = valid
+				}
+			}
+		}
+
+		if verified {
+			// MFA verified, complete login
+			sessionStore.Delete("PendingMFAUserID")
+
+			// Record login history
+			if globalSrv != nil {
+				if db, err := globalSrv.GetPrimaryDB(); err == nil && db != nil {
+					loginID := models.LegitID()
+					ipAddress := r.RemoteAddr
+					if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+						ipAddress = strings.Split(xff, ",")[0]
+					}
+					userAgent := r.Header.Get("User-Agent")
+					db.Exec("INSERT INTO login_history (id, account_id, ip_address, user_agent, success) VALUES (?, ?, ?, ?, ?)",
+						loginID, userID, ipAddress, userAgent, true)
+				}
+			}
+
+			// Check if this was a platform login (Google, etc.)
+			if pendingAuth, ok := sessionStore.Get("PendingPlatformAuth"); ok {
+				if authData, ok := pendingAuth.(map[string]string); ok {
+					sessionStore.Delete("PendingPlatformAuth")
+					sessionStore.Save()
+
+					// Complete the platform auth flow by generating authorization code
+					if globalSrv != nil {
+						completePlatformAuthAfterMFA(w, r, globalSrv, userID, authData)
+						return
+					}
+				}
+			}
+
+			// Regular login flow - set logged in user and redirect to auth
+			sessionStore.Set("LoggedInUserID", userID)
+			sessionStore.Save()
+
+			// Redirect to auth page
+			oauthQuery := ""
+			if v, ok := sessionStore.Get("OAuthQuery"); ok {
+				if q, ok := v.(string); ok {
+					oauthQuery = q
+				}
+			}
+			redirectURL := "/auth"
+			if oauthQuery != "" {
+				redirectURL = "/auth?" + oauthQuery
+			}
+			w.Header().Set("Location", redirectURL)
+			w.WriteHeader(http.StatusFound)
+			return
+		}
+
+		// Invalid code - show error
+		redirectURL := "/login/mfa?error=invalid_code&error_description=" + url.QueryEscape("Invalid verification code. Please try again.")
+		if v, ok := sessionStore.Get("OAuthQuery"); ok {
+			if q, ok := v.(string); ok && q != "" {
+				redirectURL += "&" + q
+			}
+		}
+		w.Header().Set("Location", redirectURL)
+		w.WriteHeader(http.StatusFound)
+		return
+	}
+
+	// GET - show MFA verification page
+	errorMsg := r.URL.Query().Get("error_description")
+
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Two-Factor Authentication</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .mfa-card {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      max-width: 400px;
+      width: 100%%;
+      padding: 40px;
+    }
+    .mfa-icon {
+      width: 64px;
+      height: 64px;
+      background: linear-gradient(135deg, #4f46e5 0%%, #7c3aed 100%%);
+      border-radius: 50%%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+    }
+    .mfa-icon svg {
+      width: 32px;
+      height: 32px;
+      fill: white;
+    }
+    h1 {
+      text-align: center;
+      color: #1e293b;
+      font-size: 24px;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      text-align: center;
+      color: #64748b;
+      font-size: 14px;
+      margin-bottom: 32px;
+    }
+    .error {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #dc2626;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      color: #475569;
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+    input[type="text"] {
+      width: 100%%;
+      padding: 14px 16px;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      font-size: 18px;
+      text-align: center;
+      letter-spacing: 8px;
+    }
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #4f46e5;
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+    }
+    .radio-group {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .radio-option {
+      flex: 1;
+      position: relative;
+    }
+    .radio-option input {
+      position: absolute;
+      opacity: 0;
+    }
+    .radio-option label {
+      display: block;
+      padding: 12px;
+      border: 2px solid #e2e8f0;
+      border-radius: 8px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .radio-option input:checked + label {
+      border-color: #4f46e5;
+      background: #f0f0ff;
+    }
+    .btn {
+      width: 100%%;
+      padding: 14px 24px;
+      background: linear-gradient(135deg, #4f46e5 0%%, #7c3aed 100%%);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(79, 70, 229, 0.4);
+    }
+    .back-link {
+      display: block;
+      text-align: center;
+      margin-top: 20px;
+      color: #64748b;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-link:hover {
+      color: #4f46e5;
+    }
+  </style>
+</head>
+<body>
+  <div class="mfa-card">
+    <div class="mfa-icon">
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
+      </svg>
+    </div>
+    <h1>Two-Factor Authentication</h1>
+    <p class="subtitle">Enter the code from your authenticator app</p>
+    %s
+    <form method="POST">
+      <div class="radio-group">
+        <div class="radio-option">
+          <input type="radio" name="code_type" id="totp" value="totp" checked />
+          <label for="totp">Authenticator</label>
+        </div>
+        <div class="radio-option">
+          <input type="radio" name="code_type" id="backup" value="backup" />
+          <label for="backup">Backup Code</label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="code">Verification Code</label>
+        <input type="text" name="code" id="code" maxlength="8" placeholder="000000" autofocus autocomplete="off" />
+      </div>
+      <button type="submit" class="btn">Verify</button>
+    </form>
+    <a href="/login" class="back-link">Back to Login</a>
+  </div>
+</body>
+</html>`, func() string {
+		if errorMsg != "" {
+			return `<div class="error">` + errorMsg + `</div>`
+		}
+		return ""
+	}())
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(html))
+}
+
+// completePlatformAuthAfterMFA completes the platform (Google, etc.) authentication
+// flow after MFA verification by generating an OAuth authorization code.
+func completePlatformAuthAfterMFA(w http.ResponseWriter, r *http.Request, srv *server.Server, userID string, authData map[string]string) {
+	// Parse code challenge method
+	var codeChallengeMethod oauth2.CodeChallengeMethod
+	switch authData["codeChallengeMethod"] {
+	case "S256":
+		codeChallengeMethod = oauth2.CodeChallengeS256
+	case "plain":
+		codeChallengeMethod = oauth2.CodeChallengePlain
+	}
+
+	// Create authorize request
+	authorizeReq := &server.AuthorizeRequest{
+		ResponseType:        oauth2.Code,
+		ClientID:            authData["clientID"],
+		Scope:               authData["scope"],
+		RedirectURI:         authData["redirectURI"],
+		State:               authData["state"],
+		UserID:              userID,
+		CodeChallenge:       authData["codeChallenge"],
+		CodeChallengeMethod: codeChallengeMethod,
+		Nonce:               authData["nonce"],
+		Request:             r,
+	}
+
+	// Generate authorization code
+	ti, err := srv.GetAuthorizeToken(r.Context(), authorizeReq)
+	if err != nil {
+		http.Redirect(w, r, "/login?error=server_error&error_description="+url.QueryEscape("failed to generate authorization code"), http.StatusFound)
+		return
+	}
+
+	// Build redirect URL with authorization code
+	redirectURL, err := url.Parse(authData["redirectURI"])
+	if err != nil {
+		http.Redirect(w, r, "/login?error=server_error&error_description="+url.QueryEscape("invalid redirect URI"), http.StatusFound)
+		return
+	}
+
+	query := redirectURL.Query()
+	query.Set("code", ti.GetCode())
+	if authData["state"] != "" {
+		query.Set("state", authData["state"])
+	}
+	redirectURL.RawQuery = query.Encode()
+
+	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 }

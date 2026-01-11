@@ -163,12 +163,29 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.POST("/iam/v1/public/users/reset-password", s.HandleResetPasswordGin)
 	r.GET("/iam/v1/public/users/reset-password/validate", s.HandleValidateResetCodeGin)
 
+	// MFA login verification endpoint (public - no auth required, uses mfa_token)
+	r.POST("/iam/v1/public/login/mfa/verify", s.HandleLoginMFAVerifyGin)
+
 	// Email verification endpoints (authenticated - requires bearer token)
 	adminGroup.POST("/users/request-email-verification", s.HandleRequestEmailVerificationGin)
 	adminGroup.POST("/users/verify-email", s.HandleVerifyEmailGin)
 	adminGroup.GET("/users/verify-email/validate", s.HandleValidateEmailVerificationCodeGin)
 	adminGroup.POST("/users/resend-email-verification", s.HandleResendEmailVerificationGin)
 	adminGroup.GET("/users/email-verification-status", s.HandleGetEmailVerificationStatusGin)
+
+	// MFA user endpoints (authenticated - requires bearer token)
+	adminGroup.GET("/auth/mfa/setup", s.HandleMFASetupGin)
+	adminGroup.POST("/auth/mfa/setup/verify", s.HandleMFASetupVerifyGin)
+	adminGroup.GET("/auth/mfa/status", s.HandleMFAStatusGin)
+	adminGroup.GET("/auth/mfa/backup-codes", s.HandleMFABackupCodesGin)
+	adminGroup.POST("/auth/mfa/backup-codes/regenerate", s.HandleMFABackupCodesRegenerateGin)
+	adminGroup.POST("/auth/mfa/disable", s.HandleMFADisableGin)
+
+	// MFA admin endpoints (admin-scoped)
+	adminGroup.GET("/admin/namespaces/:ns/mfa/settings", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:MFA", permission.READ), s.HandleAdminGetNamespaceMFAGin)
+	adminGroup.POST("/admin/namespaces/:ns/mfa/settings", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:MFA", permission.UPDATE), s.HandleAdminSetNamespaceMFAGin)
+	adminGroup.GET("/admin/namespaces/:ns/mfa/users/:userId/status", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeUserRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER:{userId}", permission.READ), s.HandleAdminGetUserMFAStatusGin)
+	adminGroup.DELETE("/admin/namespaces/:ns/mfa/users/:userId", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeUserAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER:{userId}", permission.DELETE), s.HandleAdminDisableUserMFAGin)
 
 	// System settings (admin only)
 	adminGroup.GET("/admin/settings", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAdmin}}, "ADMIN:NAMESPACE:*:SETTINGS", permission.READ), s.HandleGetAllSettingsGin)

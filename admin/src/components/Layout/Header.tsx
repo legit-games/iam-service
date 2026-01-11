@@ -5,8 +5,11 @@ import {
   MenuOutlined,
   UserOutlined,
   LogoutOutlined,
+  SettingOutlined,
+  SafetyOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/useAuth';
 import { useNamespaceContext } from '../../hooks/useNamespaceContext';
 
@@ -21,6 +24,7 @@ interface HeaderProps {
 export default function Header({ collapsed, onToggle, isMobile = false }: HeaderProps) {
   const { user, logout } = useAuth();
   const { currentNamespace, namespaces, setCurrentNamespace, isLoading } = useNamespaceContext();
+  const navigate = useNavigate();
 
   const displayName = user?.displayName;
 
@@ -35,6 +39,22 @@ export default function Header({ collapsed, onToggle, isMobile = false }: Header
           type: 'divider',
         },
         {
+          key: 'settings',
+          icon: <SettingOutlined />,
+          label: 'Settings',
+          children: [
+            {
+              key: 'mfa',
+              icon: <SafetyOutlined />,
+              label: 'Two-Factor Auth',
+              onClick: () => navigate('/profile/mfa'),
+            },
+          ],
+        },
+        {
+          type: 'divider',
+        },
+        {
           key: 'logout',
           icon: <LogoutOutlined />,
           label: 'Logout',
@@ -42,6 +62,22 @@ export default function Header({ collapsed, onToggle, isMobile = false }: Header
         },
       ]
     : [
+        {
+          key: 'settings',
+          icon: <SettingOutlined />,
+          label: 'Settings',
+          children: [
+            {
+              key: 'mfa',
+              icon: <SafetyOutlined />,
+              label: 'Two-Factor Auth',
+              onClick: () => navigate('/profile/mfa'),
+            },
+          ],
+        },
+        {
+          type: 'divider',
+        },
         {
           key: 'logout',
           icon: <LogoutOutlined />,

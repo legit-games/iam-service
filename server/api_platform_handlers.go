@@ -16,6 +16,7 @@ import (
 	"github.com/go-oauth2/oauth2/v4/models"
 	"github.com/go-oauth2/oauth2/v4/platforms"
 	"github.com/go-oauth2/oauth2/v4/store"
+	"github.com/go-session/session/v3"
 )
 
 // Platform ID validation regex (alphanumeric, 1-256 chars)
@@ -600,6 +601,52 @@ func (s *Server) HandlePlatformAuthenticateGin(c *gin.Context) {
 		}
 		if err := platformUserStore.CreatePlatformAccount(c.Request.Context(), newPlatformUser); err != nil {
 			// Non-fatal if platform user already exists
+		}
+	}
+
+	// Check if MFA is enabled for this user
+	// userID here is actually the account_id from accounts table
+	// MFA is stored against user_id from users table (via account_users bridge)
+	// So we need to resolve the actual user_id first
+	mfaUserID := userID // fallback to account_id
+	if db != nil {
+		var resolvedUserID string
+		row := db.WithContext(c.Request.Context()).Raw(`SELECT user_id FROM account_users WHERE account_id = $1 LIMIT 1`, userID).Row()
+		if row.Scan(&resolvedUserID) == nil && resolvedUserID != "" {
+			mfaUserID = resolvedUserID
+		}
+	}
+	if s.mfaStore != nil {
+		enabled, err := s.mfaStore.IsMFAEnabled(c.Request.Context(), mfaUserID)
+		if err == nil && enabled {
+			// MFA is required - store pending platform auth and redirect to MFA page
+			sessionStore, err := session.Start(c.Request.Context(), c.Writer, c.Request)
+			if err != nil {
+				c.Redirect(http.StatusFound, "/login?error=server_error&error_description="+url.QueryEscape("session error"))
+				return
+			}
+
+			// Store pending MFA user ID (use the resolved mfaUserID for consistency)
+			sessionStore.Set("PendingMFAUserID", mfaUserID)
+
+			// Store the authorization request data for after MFA verification
+			sessionStore.Set("PendingPlatformAuth", map[string]string{
+				"clientID":            authRequest.ClientID,
+				"scope":               authRequest.Scope,
+				"redirectURI":         authRequest.RedirectURI,
+				"state":               authRequest.State,
+				"codeChallenge":       authRequest.CodeChallenge,
+				"codeChallengeMethod": authRequest.CodeChallengeMethod,
+				"nonce":               authRequest.Nonce,
+			})
+			sessionStore.Save()
+
+			// Delete the original authorization request (we saved it in session)
+			_ = authRequestStore.Delete(c.Request.Context(), state)
+
+			// Redirect to MFA verification page
+			c.Redirect(http.StatusFound, "/login/mfa")
+			return
 		}
 	}
 
