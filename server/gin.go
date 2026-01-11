@@ -147,6 +147,26 @@ func NewGinEngine(s *Server) *gin.Engine {
 	// Platform token endpoint (public - client auth via Basic Auth)
 	r.POST("/iam/v1/oauth/platforms/:platformId/token", s.HandlePlatformTokenGin)
 
+	// Password reset endpoints (public - no auth required)
+	r.POST("/iam/v1/public/users/forgot-password", s.HandleForgotPasswordGin)
+	r.POST("/iam/v1/public/users/reset-password", s.HandleResetPasswordGin)
+	r.GET("/iam/v1/public/users/reset-password/validate", s.HandleValidateResetCodeGin)
+
+	// System settings (admin only)
+	adminGroup.GET("/admin/settings", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAdmin}}, "ADMIN:NAMESPACE:*:SETTINGS", permission.READ), s.HandleGetAllSettingsGin)
+
+	// Email providers - Supported types (admin only)
+	adminGroup.GET("/admin/email-providers/types", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAdmin}}, "ADMIN:NAMESPACE:*:EMAIL", permission.READ), s.HandleGetSupportedProvidersGin)
+
+	// Email providers - Namespace scoped (all operations are namespace-scoped)
+	adminGroup.GET("/admin/namespaces/:ns/email-providers", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:EMAIL", permission.READ), s.HandleListEmailProvidersByNamespaceGin)
+	adminGroup.GET("/admin/namespaces/:ns/email-providers/:id", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:EMAIL", permission.READ), s.HandleGetEmailProviderByNamespaceGin)
+	adminGroup.POST("/admin/namespaces/:ns/email-providers", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:EMAIL", permission.CREATE), s.HandleCreateEmailProviderByNamespaceGin)
+	adminGroup.PUT("/admin/namespaces/:ns/email-providers/:id", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:EMAIL", permission.UPDATE), s.HandleUpdateEmailProviderByNamespaceGin)
+	adminGroup.DELETE("/admin/namespaces/:ns/email-providers/:id", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:EMAIL", permission.DELETE), s.HandleDeleteEmailProviderByNamespaceGin)
+	adminGroup.POST("/admin/namespaces/:ns/email-providers/:id/set-default", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:EMAIL", permission.UPDATE), s.HandleSetDefaultEmailProviderByNamespaceGin)
+	adminGroup.POST("/admin/namespaces/:ns/email-providers/:id/test", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:EMAIL", permission.UPDATE), s.HandleTestEmailProviderByNamespaceGin)
+
 	// Register admin console routes (embedded React SPA or dev proxy)
 	RegisterAdminRoutes(r)
 

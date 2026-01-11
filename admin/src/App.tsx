@@ -5,6 +5,8 @@ import { ProtectedRoute } from './auth/ProtectedRoute';
 import MainLayout from './components/Layout/MainLayout';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Callback from './pages/Callback';
 import NamespaceSelectPage from './pages/NamespaceSelectPage';
 import Dashboard from './pages/Dashboard';
@@ -17,6 +19,7 @@ import RoleList from './pages/roles/RoleList';
 import BanList from './pages/bans/BanList';
 import PlatformClientList from './pages/platforms/PlatformClientList';
 import PlatformUserList from './pages/platforms/PlatformUserList';
+import EmailSettings from './pages/settings/EmailSettings';
 
 function App() {
   const { isLoading } = useAuth();
@@ -33,6 +36,8 @@ function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/callback" element={<Callback />} />
       <Route
         path="/select-namespace"
@@ -61,6 +66,7 @@ function App() {
         <Route path="bans" element={<BanList />} />
         <Route path="platforms/clients" element={<PlatformClientList />} />
         <Route path="platforms/users" element={<PlatformUserList />} />
+        <Route path="settings/email" element={<EmailSettings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -29,7 +29,11 @@ export default function Login() {
           Sign in with OAuth2
         </Button>
 
-        <div style={{ marginTop: 24, color: '#666' }}>
+        <div style={{ marginTop: 16 }}>
+          <Link to="/forgot-password">Forgot password?</Link>
+        </div>
+
+        <div style={{ marginTop: 8, color: '#666' }}>
           Don't have an account?{' '}
           <Link to="/register">Register</Link>
         </div>
