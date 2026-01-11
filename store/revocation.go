@@ -104,7 +104,13 @@ type RevocationStore struct {
 	db     *gorm.DB
 	config RevocationConfig
 
-	// In-memory cache
+	// Redis cache (shared across pods)
+	redisCache *RevocationRedisCache
+
+	// Leader election for cleanup tasks
+	leaderElection *LeaderElection
+
+	// In-memory cache (fallback when Redis unavailable)
 	cacheMu           sync.RWMutex
 	cachedFilter      *bloom.Filter
 	cachedUsers       map[string]time.Time // userID -> revokedAt
@@ -138,6 +144,21 @@ func NewRevocationStoreWithConfig(db *gorm.DB, config RevocationConfig) *Revocat
 	return s
 }
 
+// SetRedisCache sets the Redis cache for distributed caching.
+func (s *RevocationStore) SetRedisCache(cache *RevocationRedisCache) {
+	s.redisCache = cache
+}
+
+// SetLeaderElection sets the leader election instance.
+func (s *RevocationStore) SetLeaderElection(le *LeaderElection) {
+	s.leaderElection = le
+}
+
+// HasRedisCache returns whether Redis cache is configured.
+func (s *RevocationStore) HasRedisCache() bool {
+	return s.redisCache != nil
+}
+
 // HashToken creates a SHA256 hash of the token for storage.
 func HashToken(token string) string {
 	hash := sha256.Sum256([]byte(token))
@@ -157,7 +178,20 @@ func (s *RevocationStore) RevokeToken(ctx context.Context, token string, userID,
 		Reason:    reason,
 	}
 
-	return s.db.WithContext(ctx).Create(record).Error
+	// Save to database (source of truth)
+	if err := s.db.WithContext(ctx).Create(record).Error; err != nil {
+		return err
+	}
+
+	// Update Redis cache immediately for instant sync across pods
+	if s.redisCache != nil {
+		if err := s.redisCache.AddRevokedToken(ctx, tokenHash, expiresAt); err != nil {
+			log.Printf("revocation: failed to update redis cache for token: %v", err)
+			// Don't fail - DB is source of truth
+		}
+	}
+
+	return nil
 }
 
 // RevokeTokenByHash revokes a token by its hash (useful when you only have the hash).
@@ -181,10 +215,18 @@ func (s *RevocationStore) IsTokenRevoked(ctx context.Context, token string) (boo
 }
 
 // IsTokenRevokedByHash checks if a token hash is in the revocation list.
-// Uses bloom filter optimization if enabled: if bloom filter says "not present",
-// the token is definitely not revoked. If it says "possibly present", we check DB.
+// Uses Redis cache if available, falls back to local cache or DB.
 func (s *RevocationStore) IsTokenRevokedByHash(ctx context.Context, tokenHash string) (bool, error) {
-	// Use bloom filter optimization if enabled and cache is initialized
+	// Try Redis cache first (fastest, shared across pods)
+	if s.redisCache != nil {
+		revoked, err := s.redisCache.IsTokenRevoked(ctx, tokenHash)
+		if err == nil {
+			return revoked, nil
+		}
+		log.Printf("revocation: redis cache check failed, falling back: %v", err)
+	}
+
+	// Fall back to local bloom filter cache
 	if s.config.UseBloomFilterOptimization {
 		s.cacheMu.RLock()
 		filter := s.cachedFilter
@@ -200,7 +242,7 @@ func (s *RevocationStore) IsTokenRevokedByHash(ctx context.Context, tokenHash st
 		}
 	}
 
-	// Check database
+	// Check database (source of truth)
 	var count int64
 	err := s.db.WithContext(ctx).Model(&RevokedToken{}).
 		Where("token_hash = ? AND expires_at > ?", tokenHash, time.Now().UTC()).
@@ -214,6 +256,7 @@ func (s *RevocationStore) IsTokenRevokedByHash(ctx context.Context, tokenHash st
 // RevokeUser revokes all tokens for a user.
 func (s *RevocationStore) RevokeUser(ctx context.Context, userID, reason string) error {
 	expiresAt := time.Now().UTC().Add(s.config.UserRevocationTTL)
+	revokedAt := time.Now().UTC()
 
 	// First, delete any existing active revocation for this user
 	s.db.WithContext(ctx).
@@ -222,16 +265,30 @@ func (s *RevocationStore) RevokeUser(ctx context.Context, userID, reason string)
 
 	record := &RevokedUser{
 		UserID:    userID,
-		RevokedAt: time.Now().UTC(),
+		RevokedAt: revokedAt,
 		ExpiresAt: expiresAt,
 		Reason:    reason,
 	}
 
-	return s.db.WithContext(ctx).Create(record).Error
+	// Save to database (source of truth)
+	if err := s.db.WithContext(ctx).Create(record).Error; err != nil {
+		return err
+	}
+
+	// Update Redis cache immediately
+	if s.redisCache != nil {
+		if err := s.redisCache.AddRevokedUser(ctx, userID, revokedAt, expiresAt); err != nil {
+			log.Printf("revocation: failed to update redis cache for user: %v", err)
+		}
+	}
+
+	return nil
 }
 
 // RevokeUserWithExpiry revokes all tokens for a user with custom expiry.
 func (s *RevocationStore) RevokeUserWithExpiry(ctx context.Context, userID, reason string, expiresAt time.Time) error {
+	revokedAt := time.Now().UTC()
+
 	// First, delete any existing active revocation for this user
 	s.db.WithContext(ctx).
 		Where("user_id = ? AND expires_at > ?", userID, time.Now().UTC()).
@@ -239,19 +296,40 @@ func (s *RevocationStore) RevokeUserWithExpiry(ctx context.Context, userID, reas
 
 	record := &RevokedUser{
 		UserID:    userID,
-		RevokedAt: time.Now().UTC(),
+		RevokedAt: revokedAt,
 		ExpiresAt: expiresAt,
 		Reason:    reason,
 	}
 
-	return s.db.WithContext(ctx).Create(record).Error
+	// Save to database (source of truth)
+	if err := s.db.WithContext(ctx).Create(record).Error; err != nil {
+		return err
+	}
+
+	// Update Redis cache immediately
+	if s.redisCache != nil {
+		if err := s.redisCache.AddRevokedUser(ctx, userID, revokedAt, expiresAt); err != nil {
+			log.Printf("revocation: failed to update redis cache for user: %v", err)
+		}
+	}
+
+	return nil
 }
 
 // IsUserRevoked checks if a user's tokens are revoked.
 // Returns the revocation time if revoked, nil otherwise.
-// Uses in-memory cache for fast lookups if cache is initialized.
+// Uses Redis cache if available, falls back to local cache or DB.
 func (s *RevocationStore) IsUserRevoked(ctx context.Context, userID string) (*time.Time, error) {
-	// Check cache first if initialized
+	// Try Redis cache first (fastest, shared across pods)
+	if s.redisCache != nil {
+		revokedAt, err := s.redisCache.IsUserRevoked(ctx, userID)
+		if err == nil {
+			return revokedAt, nil
+		}
+		log.Printf("revocation: redis cache check failed for user, falling back: %v", err)
+	}
+
+	// Fall back to local cache
 	if s.config.UseBloomFilterOptimization {
 		s.cacheMu.RLock()
 		initialized := s.cacheInitialized
@@ -269,7 +347,7 @@ func (s *RevocationStore) IsUserRevoked(ctx context.Context, userID string) (*ti
 		}
 	}
 
-	// Fall back to database
+	// Fall back to database (source of truth)
 	var record RevokedUser
 	err := s.db.WithContext(ctx).
 		Where("user_id = ? AND expires_at > ?", userID, time.Now().UTC()).
@@ -469,6 +547,16 @@ func (s *RevocationStore) GetMergedBloomFilter(ctx context.Context) (*bloom.Filt
 
 // GetRevocationList returns the complete revocation list for API response.
 func (s *RevocationStore) GetRevocationList(ctx context.Context) (*RevocationList, error) {
+	// Try Redis cache first (shared across pods)
+	if s.redisCache != nil {
+		list, err := s.redisCache.GetRevocationList(ctx)
+		if err == nil {
+			return list, nil
+		}
+		log.Printf("revocation: failed to get revocation list from redis, falling back: %v", err)
+	}
+
+	// Fall back to building from database
 	// Get merged bloom filter for revoked tokens
 	filter, err := s.GetMergedBloomFilter(ctx)
 	if err != nil {
@@ -533,9 +621,21 @@ func (s *RevocationStore) CleanupExpired(ctx context.Context) error {
 
 // RemoveUserRevocation removes user revocation (e.g., when ban is lifted).
 func (s *RevocationStore) RemoveUserRevocation(ctx context.Context, userID string) error {
-	return s.db.WithContext(ctx).
+	// Remove from database
+	if err := s.db.WithContext(ctx).
 		Where("user_id = ?", userID).
-		Delete(&RevokedUser{}).Error
+		Delete(&RevokedUser{}).Error; err != nil {
+		return err
+	}
+
+	// Remove from Redis cache
+	if s.redisCache != nil {
+		if err := s.redisCache.RemoveRevokedUser(ctx, userID); err != nil {
+			log.Printf("revocation: failed to remove user from redis cache: %v", err)
+		}
+	}
+
+	return nil
 }
 
 // GetConfig returns the current configuration.
@@ -587,19 +687,38 @@ func (s *RevocationStore) RefreshCache(ctx context.Context) error {
 // StartBackgroundWorker starts the background worker that periodically
 // refreshes the cache and saves bloom filters to the database.
 func (s *RevocationStore) StartBackgroundWorker(ctx context.Context) {
-	// Initial cache refresh
+	// Initial sync: if Redis is available, sync from DB to Redis
+	if s.redisCache != nil {
+		if err := s.redisCache.SyncFromDatabase(ctx, s); err != nil {
+			log.Printf("revocation: initial redis sync failed: %v", err)
+		} else {
+			log.Printf("revocation: initial redis sync completed")
+		}
+	}
+
+	// Initial local cache refresh (fallback)
 	if err := s.RefreshCache(ctx); err != nil {
-		log.Printf("revocation: initial cache refresh failed: %v", err)
+		log.Printf("revocation: initial local cache refresh failed: %v", err)
+	}
+
+	// Start leader election if configured
+	if s.leaderElection != nil {
+		s.leaderElection.Start(ctx)
+		log.Printf("revocation: leader election started")
 	}
 
 	go func() {
 		ticker := time.NewTicker(s.config.CacheRefreshInterval)
 		defer ticker.Stop()
 
-		// Daily bloom filter save ticker (runs at midnight)
-		bloomSaveTicker := time.NewTicker(1 * time.Hour)
-		defer bloomSaveTicker.Stop()
-		lastBloomSave := time.Now().UTC().Truncate(24 * time.Hour)
+		// Daily tasks ticker (runs hourly, checks for daily tasks)
+		dailyTicker := time.NewTicker(1 * time.Hour)
+		defer dailyTicker.Stop()
+		lastDailyRun := time.Now().UTC().Truncate(24 * time.Hour)
+
+		// Redis sync ticker (every 5 minutes)
+		redisSyncTicker := time.NewTicker(5 * time.Minute)
+		defer redisSyncTicker.Stop()
 
 		for {
 			select {
@@ -608,41 +727,63 @@ func (s *RevocationStore) StartBackgroundWorker(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				// Refresh cache
+				// Refresh local cache (fallback for when Redis is unavailable)
 				if err := s.RefreshCache(context.Background()); err != nil {
-					log.Printf("revocation: cache refresh failed: %v", err)
+					log.Printf("revocation: local cache refresh failed: %v", err)
 				}
-			case <-bloomSaveTicker.C:
-				// Save bloom filter once per day
+			case <-redisSyncTicker.C:
+				// Sync Redis cache from database (all pods do this)
+				if s.redisCache != nil {
+					if err := s.redisCache.SyncFromDatabase(context.Background(), s); err != nil {
+						log.Printf("revocation: redis sync failed: %v", err)
+					}
+				}
+			case <-dailyTicker.C:
+				// Daily tasks - only leader executes these
 				today := time.Now().UTC().Truncate(24 * time.Hour)
-				if today.After(lastBloomSave) {
-					s.cacheMu.RLock()
-					filter := s.cachedFilter
-					s.cacheMu.RUnlock()
-
-					if filter != nil {
-						// Count tokens for today
-						var count int64
-						s.db.Model(&RevokedToken{}).
-							Where("revoked_at >= ? AND revoked_at < ?", today, today.Add(24*time.Hour)).
-							Count(&count)
-
-						if err := s.SaveBloomFilter(context.Background(), today, filter, int(count)); err != nil {
-							log.Printf("revocation: bloom filter save failed: %v", err)
-						} else {
-							lastBloomSave = today
-							log.Printf("revocation: bloom filter saved for %s with %d tokens", today.Format("2006-01-02"), count)
-						}
-					}
-
-					// Also cleanup expired records
-					if err := s.CleanupExpired(context.Background()); err != nil {
-						log.Printf("revocation: cleanup expired failed: %v", err)
-					}
+				if today.After(lastDailyRun) {
+					s.runDailyTasks(context.Background(), today)
+					lastDailyRun = today
 				}
 			}
 		}
 	}()
+}
+
+// runDailyTasks runs daily maintenance tasks (only on leader).
+func (s *RevocationStore) runDailyTasks(ctx context.Context, today time.Time) {
+	// Check if we're the leader (if leader election is configured)
+	if s.leaderElection != nil && !s.leaderElection.IsLeader() {
+		log.Printf("revocation: skipping daily tasks (not leader)")
+		return
+	}
+
+	log.Printf("revocation: running daily tasks as leader")
+
+	// Save bloom filter to database
+	s.cacheMu.RLock()
+	filter := s.cachedFilter
+	s.cacheMu.RUnlock()
+
+	if filter != nil {
+		var count int64
+		s.db.Model(&RevokedToken{}).
+			Where("revoked_at >= ? AND revoked_at < ?", today, today.Add(24*time.Hour)).
+			Count(&count)
+
+		if err := s.SaveBloomFilter(ctx, today, filter, int(count)); err != nil {
+			log.Printf("revocation: bloom filter save failed: %v", err)
+		} else {
+			log.Printf("revocation: bloom filter saved for %s with %d tokens", today.Format("2006-01-02"), count)
+		}
+	}
+
+	// Cleanup expired records (only leader does this)
+	if err := s.CleanupExpired(ctx); err != nil {
+		log.Printf("revocation: cleanup expired failed: %v", err)
+	} else {
+		log.Printf("revocation: cleanup expired completed")
+	}
 }
 
 // StopBackgroundWorker stops the background worker.
@@ -650,6 +791,16 @@ func (s *RevocationStore) StopBackgroundWorker() {
 	if !s.stopped {
 		close(s.stopChan)
 		s.stopped = true
+	}
+
+	// Stop leader election
+	if s.leaderElection != nil {
+		s.leaderElection.Stop()
+	}
+
+	// Close Redis connection
+	if s.redisCache != nil {
+		s.redisCache.Close()
 	}
 }
 

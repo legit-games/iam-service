@@ -78,6 +78,8 @@ func NewServer(cfg *Config, manager oauth2.Manager) *Server {
 		s.settingsStore = store.NewSystemSettingsStore(db)
 		s.emailProviderStore = store.NewEmailProviderStore(db)
 		s.revocationStore = store.NewRevocationStore(db)
+		// Initialize Redis cache and leader election for revocation store
+		s.initializeRevocationRedisCache()
 		// Start revocation cache background worker
 		s.revocationStore.StartBackgroundWorker(context.Background())
 	}
@@ -334,6 +336,8 @@ func (s *Server) initializeDatabases() error {
 		s.settingsStore = store.NewSystemSettingsStore(db)
 		s.emailProviderStore = store.NewEmailProviderStore(db)
 		s.revocationStore = store.NewRevocationStore(db)
+		// Initialize Redis cache and leader election for revocation store
+		s.initializeRevocationRedisCache()
 		// Start revocation cache background worker
 		s.revocationStore.StartBackgroundWorker(context.Background())
 	}
@@ -350,6 +354,54 @@ func (s *Server) initializeDatabases() error {
 // This default console sender is only used as a fallback.
 func (s *Server) initializeEmailSenderFromProvider() {
 	s.emailSender = email.NewConsoleSender()
+}
+
+// initializeRevocationRedisCache initializes Redis cache and leader election for token revocation.
+// This enables instant synchronization across all pods in a Kubernetes cluster.
+func (s *Server) initializeRevocationRedisCache() {
+	if s.revocationStore == nil {
+		return
+	}
+
+	cfg := GetConfig()
+	redisAddr := cfg.ValkeyAddr()
+	redisPrefix := cfg.ValkeyPrefix()
+
+	if redisAddr == "" {
+		// Redis not configured, use local cache only
+		return
+	}
+
+	// Initialize Redis cache
+	revocationConfig := s.revocationStore.GetConfig()
+	redisCache, err := store.NewRevocationRedisCache(redisAddr, redisPrefix, revocationConfig)
+	if err != nil {
+		// Log error but continue - local cache will be used as fallback
+		fmt.Printf("revocation: failed to initialize redis cache: %v\n", err)
+		return
+	}
+
+	// Test Redis connection
+	if err := redisCache.Ping(context.Background()); err != nil {
+		fmt.Printf("revocation: redis connection failed: %v\n", err)
+		return
+	}
+
+	s.revocationStore.SetRedisCache(redisCache)
+	fmt.Printf("revocation: redis cache initialized at %s\n", redisAddr)
+
+	// Initialize leader election using the same Redis connection
+	leaderConfig := store.DefaultLeaderElectionConfig()
+	leaderConfig.OnStartedLeading = func(ctx context.Context) {
+		fmt.Printf("revocation: this pod became the leader\n")
+	}
+	leaderConfig.OnStoppedLeading = func() {
+		fmt.Printf("revocation: this pod is no longer the leader\n")
+	}
+
+	leaderElection := store.NewLeaderElection(redisCache.GetClient(), redisPrefix, leaderConfig)
+	s.revocationStore.SetLeaderElection(leaderElection)
+	fmt.Printf("revocation: leader election initialized (identity=%s)\n", leaderConfig.Identity)
 }
 
 func (s *Server) handleError(w http.ResponseWriter, req *AuthorizeRequest, err error) error {
