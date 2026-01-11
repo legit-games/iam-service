@@ -34,9 +34,6 @@ CREATE TABLE IF NOT EXISTS revoked_users (
 CREATE INDEX IF NOT EXISTS idx_revoked_users_user_id ON revoked_users(user_id);
 -- Index for cleanup of expired entries
 CREATE INDEX IF NOT EXISTS idx_revoked_users_expires ON revoked_users(expires_at);
--- Unique constraint to prevent duplicate active revocations for same user
-CREATE UNIQUE INDEX IF NOT EXISTS idx_revoked_users_active ON revoked_users(user_id)
-    WHERE expires_at > NOW();
 
 -- Bloom filter storage for compressed token revocation data (date-partitioned)
 CREATE TABLE IF NOT EXISTS revocation_bloom_filters (
@@ -59,7 +56,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_bloom_filters_date ON revocation_bloom_fil
 DROP INDEX IF EXISTS idx_bloom_filters_date;
 DROP TABLE IF EXISTS revocation_bloom_filters;
 
-DROP INDEX IF EXISTS idx_revoked_users_active;
 DROP INDEX IF EXISTS idx_revoked_users_expires;
 DROP INDEX IF EXISTS idx_revoked_users_user_id;
 DROP TABLE IF EXISTS revoked_users;
