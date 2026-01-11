@@ -210,10 +210,11 @@ func (s *MFAStore) InitiateTOTPSetup(ctx context.Context, accountID, accountName
 
 	// Check if MFA is already enabled
 	var existing UserMFASettings
-	err := s.DB.WithContext(ctx).Where("account_id = ?", accountID).First(&existing).Error
-	if err == nil && existing.MFAEnabled {
+	queryErr := s.DB.WithContext(ctx).Where("account_id = ?", accountID).First(&existing).Error
+	if queryErr == nil && existing.MFAEnabled {
 		return nil, fmt.Errorf("MFA is already enabled for this account")
 	}
+	isNewRecord := queryErr == gorm.ErrRecordNotFound
 
 	// Generate TOTP secret
 	cfg := totp.Config{
@@ -235,19 +236,18 @@ func (s *MFAStore) InitiateTOTPSetup(ctx context.Context, accountID, accountName
 	}
 
 	// Store or update MFA settings
-	settings := UserMFASettings{
-		ID:                  generateID(),
-		AccountID:           accountID,
-		TOTPSecretEncrypted: encrypted,
-		TOTPSecretNonce:     nonce,
-		TOTPVerified:        false,
-		MFAEnabled:          false,
-		CreatedAt:           now,
-		UpdatedAt:           now,
-	}
-
-	if err == gorm.ErrRecordNotFound {
+	if isNewRecord {
 		// Create new settings
+		settings := UserMFASettings{
+			ID:                  generateID(),
+			AccountID:           accountID,
+			TOTPSecretEncrypted: encrypted,
+			TOTPSecretNonce:     nonce,
+			TOTPVerified:        false,
+			MFAEnabled:          false,
+			CreatedAt:           now,
+			UpdatedAt:           now,
+		}
 		if err := s.DB.WithContext(ctx).Create(&settings).Error; err != nil {
 			return nil, fmt.Errorf("failed to create MFA settings: %w", err)
 		}
@@ -715,9 +715,9 @@ func (s *MFAStore) IsMFARequiredForNamespace(ctx context.Context, namespace stri
 
 // MFAStatus represents the MFA status for an account
 type MFAStatus struct {
-	Enabled          bool   `json:"enabled"`
-	TOTPVerified     bool   `json:"totp_verified"`
-	BackupCodesCount int    `json:"backup_codes_count"`
+	Enabled          bool       `json:"mfa_enabled"`
+	TOTPVerified     bool       `json:"totp_configured"`
+	BackupCodesCount int        `json:"backup_codes_remaining"`
 	EnabledAt        *time.Time `json:"enabled_at,omitempty"`
 }
 

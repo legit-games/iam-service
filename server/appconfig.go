@@ -19,6 +19,14 @@ type AppConfig struct {
 	Database DatabaseConfig `koanf:"database"`
 	Migrate  MigrateConfig  `koanf:"migrate"`
 	Valkey   ValkeyConfig   `koanf:"valkey"`
+	MFA      MFAAppConfig   `koanf:"mfa"`
+}
+
+// MFAAppConfig holds MFA (Multi-Factor Authentication) configuration.
+type MFAAppConfig struct {
+	Enabled       bool   `koanf:"enabled"`
+	EncryptionKey string `koanf:"encryption_key"`
+	TOTPIssuer    string `koanf:"totp_issuer"`
 }
 
 // ValkeyConfig holds Valkey/Redis configuration.
@@ -254,4 +262,34 @@ func (c *AppConfig) ValkeyPrefix() string {
 		return v
 	}
 	return "iam:"
+}
+
+// MFAEnabled returns whether MFA is enabled.
+func (c *AppConfig) MFAEnabled() bool {
+	if c != nil {
+		return c.MFA.Enabled
+	}
+	// Fallback to environment variable
+	return strings.TrimSpace(os.Getenv("MFA_ENABLED")) == "true"
+}
+
+// MFAEncryptionKey returns the MFA encryption key (hex-encoded, 64 chars = 32 bytes).
+func (c *AppConfig) MFAEncryptionKey() string {
+	if c != nil && c.MFA.EncryptionKey != "" {
+		return strings.TrimSpace(c.MFA.EncryptionKey)
+	}
+	// Fallback to environment variable
+	return strings.TrimSpace(os.Getenv("MFA_ENCRYPTION_KEY"))
+}
+
+// MFATOTPIssuer returns the TOTP issuer name shown in authenticator apps.
+func (c *AppConfig) MFATOTPIssuer() string {
+	if c != nil && c.MFA.TOTPIssuer != "" {
+		return strings.TrimSpace(c.MFA.TOTPIssuer)
+	}
+	// Fallback to environment variable
+	if v := strings.TrimSpace(os.Getenv("MFA_TOTP_ISSUER")); v != "" {
+		return v
+	}
+	return "OAuth2"
 }

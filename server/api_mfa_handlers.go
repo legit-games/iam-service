@@ -16,15 +16,10 @@ import (
 // HandleMFASetupGin initiates MFA setup for the authenticated user
 // GET /iam/v1/auth/mfa/setup
 func (s *Server) HandleMFASetupGin(c *gin.Context) {
-	// Get account ID from token context (set by TokenMiddleware)
-	accountID := c.GetString("account_id")
-	if accountID == "" {
-		// Try to get from user_id claim
-		if userID := c.GetString("user_id"); userID != "" {
-			accountID = userID
-		}
-	}
-	if accountID == "" {
+	// Get user ID from token context (this is the user_id from users table via JWT)
+	// MFA is tied to the user_id for consistency with token claims
+	userID := c.GetString("user_id")
+	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "authentication required"})
 		return
 	}
@@ -37,11 +32,11 @@ func (s *Server) HandleMFASetupGin(c *gin.Context) {
 	// Get account name (username or email) for TOTP display
 	accountName := c.GetString("username")
 	if accountName == "" {
-		accountName = accountID
+		accountName = userID
 	}
 
 	// Initiate MFA setup
-	result, err := s.mfaStore.InitiateTOTPSetup(c.Request.Context(), accountID, accountName)
+	result, err := s.mfaStore.InitiateTOTPSetup(c.Request.Context(), userID, accountName)
 	if err != nil {
 		if strings.Contains(err.Error(), "already enabled") {
 			c.JSON(http.StatusConflict, gin.H{"error": "mfa_already_enabled", "error_description": err.Error()})
@@ -61,13 +56,10 @@ func (s *Server) HandleMFASetupGin(c *gin.Context) {
 // HandleMFASetupVerifyGin verifies TOTP and enables MFA
 // POST /iam/v1/auth/mfa/setup/verify
 func (s *Server) HandleMFASetupVerifyGin(c *gin.Context) {
-	accountID := c.GetString("account_id")
-	if accountID == "" {
-		if userID := c.GetString("user_id"); userID != "" {
-			accountID = userID
-		}
-	}
-	if accountID == "" {
+	// Get user ID from token context (this is the user_id from users table via JWT)
+	// MFA is tied to the user_id for consistency with token claims
+	userID := c.GetString("user_id")
+	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "authentication required"})
 		return
 	}
@@ -85,7 +77,7 @@ func (s *Server) HandleMFASetupVerifyGin(c *gin.Context) {
 		return
 	}
 
-	result, err := s.mfaStore.VerifyAndEnableTOTP(c.Request.Context(), accountID, payload.Code)
+	result, err := s.mfaStore.VerifyAndEnableTOTP(c.Request.Context(), userID, payload.Code)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
 		return
@@ -109,13 +101,10 @@ func (s *Server) HandleMFASetupVerifyGin(c *gin.Context) {
 // HandleMFAStatusGin returns user's MFA status
 // GET /iam/v1/auth/mfa/status
 func (s *Server) HandleMFAStatusGin(c *gin.Context) {
-	accountID := c.GetString("account_id")
-	if accountID == "" {
-		if userID := c.GetString("user_id"); userID != "" {
-			accountID = userID
-		}
-	}
-	if accountID == "" {
+	// Get user_id from JWT token (this is the users table ID, not account ID)
+	// MFA is tied to user_id for consistency with token claims
+	userID := c.GetString("user_id")
+	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "authentication required"})
 		return
 	}
@@ -125,7 +114,7 @@ func (s *Server) HandleMFAStatusGin(c *gin.Context) {
 		return
 	}
 
-	status, err := s.mfaStore.GetMFAStatus(c.Request.Context(), accountID)
+	status, err := s.mfaStore.GetMFAStatus(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
 		return
@@ -137,13 +126,10 @@ func (s *Server) HandleMFAStatusGin(c *gin.Context) {
 // HandleMFABackupCodesGin returns remaining backup code count
 // GET /iam/v1/auth/mfa/backup-codes
 func (s *Server) HandleMFABackupCodesGin(c *gin.Context) {
-	accountID := c.GetString("account_id")
-	if accountID == "" {
-		if userID := c.GetString("user_id"); userID != "" {
-			accountID = userID
-		}
-	}
-	if accountID == "" {
+	// Get user_id from JWT token (this is the users table ID, not account ID)
+	// MFA is tied to user_id for consistency with token claims
+	userID := c.GetString("user_id")
+	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "authentication required"})
 		return
 	}
@@ -153,7 +139,7 @@ func (s *Server) HandleMFABackupCodesGin(c *gin.Context) {
 		return
 	}
 
-	count, err := s.mfaStore.GetBackupCodeCount(c.Request.Context(), accountID)
+	count, err := s.mfaStore.GetBackupCodeCount(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
 		return
@@ -165,13 +151,10 @@ func (s *Server) HandleMFABackupCodesGin(c *gin.Context) {
 // HandleMFABackupCodesRegenerateGin generates new backup codes
 // POST /iam/v1/auth/mfa/backup-codes/regenerate
 func (s *Server) HandleMFABackupCodesRegenerateGin(c *gin.Context) {
-	accountID := c.GetString("account_id")
-	if accountID == "" {
-		if userID := c.GetString("user_id"); userID != "" {
-			accountID = userID
-		}
-	}
-	if accountID == "" {
+	// Get user_id from JWT token (this is the users table ID, not account ID)
+	// MFA is tied to user_id for consistency with token claims
+	userID := c.GetString("user_id")
+	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "authentication required"})
 		return
 	}
@@ -191,7 +174,7 @@ func (s *Server) HandleMFABackupCodesRegenerateGin(c *gin.Context) {
 	}
 
 	// Verify the code before regenerating
-	valid, err := s.verifyMFACode(c.Request.Context(), accountID, payload.Code, payload.CodeType)
+	valid, err := s.verifyMFACode(c.Request.Context(), userID, payload.Code, payload.CodeType)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
 		return
@@ -202,7 +185,7 @@ func (s *Server) HandleMFABackupCodesRegenerateGin(c *gin.Context) {
 	}
 
 	// Generate new backup codes
-	codes, err := s.mfaStore.GenerateBackupCodes(c.Request.Context(), accountID)
+	codes, err := s.mfaStore.GenerateBackupCodes(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
 		return
@@ -218,13 +201,10 @@ func (s *Server) HandleMFABackupCodesRegenerateGin(c *gin.Context) {
 // HandleMFADisableGin disables MFA for the user
 // POST /iam/v1/auth/mfa/disable
 func (s *Server) HandleMFADisableGin(c *gin.Context) {
-	accountID := c.GetString("account_id")
-	if accountID == "" {
-		if userID := c.GetString("user_id"); userID != "" {
-			accountID = userID
-		}
-	}
-	if accountID == "" {
+	// Get user_id from JWT token (this is the users table ID, not account ID)
+	// MFA is tied to user_id for consistency with token claims
+	userID := c.GetString("user_id")
+	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "authentication required"})
 		return
 	}
@@ -244,15 +224,23 @@ func (s *Server) HandleMFADisableGin(c *gin.Context) {
 		return
 	}
 
-	// Verify password
+	// Verify password - need to get account_id first since password is in accounts table
 	db, err := s.GetIAMReadDB()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "database unavailable"})
 		return
 	}
 
+	// Get account_id from user_id via account_users bridge table
+	var accountID string
+	row := db.WithContext(c.Request.Context()).Raw(`SELECT account_id FROM account_users WHERE user_id=$1 LIMIT 1`, userID).Row()
+	if err := row.Scan(&accountID); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "account not found"})
+		return
+	}
+
 	var hash string
-	row := db.WithContext(c.Request.Context()).Raw(`SELECT password_hash FROM accounts WHERE id=$1`, accountID).Row()
+	row = db.WithContext(c.Request.Context()).Raw(`SELECT password_hash FROM accounts WHERE id=$1`, accountID).Row()
 	if err := row.Scan(&hash); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "error_description": "account not found"})
 		return
@@ -262,8 +250,8 @@ func (s *Server) HandleMFADisableGin(c *gin.Context) {
 		return
 	}
 
-	// Verify MFA code
-	valid, err := s.verifyMFACode(c.Request.Context(), accountID, payload.Code, payload.CodeType)
+	// Verify MFA code (using userID since MFA is stored against user_id)
+	valid, err := s.verifyMFACode(c.Request.Context(), userID, payload.Code, payload.CodeType)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
 		return
@@ -273,8 +261,8 @@ func (s *Server) HandleMFADisableGin(c *gin.Context) {
 		return
 	}
 
-	// Disable MFA
-	if err := s.mfaStore.DisableMFA(c.Request.Context(), accountID); err != nil {
+	// Disable MFA (using userID since MFA is stored against user_id)
+	if err := s.mfaStore.DisableMFA(c.Request.Context(), userID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": err.Error()})
 		return
 	}
