@@ -77,6 +77,7 @@ func NewServer(cfg *Config, manager oauth2.Manager) *Server {
 		s.emailVerificationStore = store.NewEmailVerificationStore(db)
 		s.settingsStore = store.NewSystemSettingsStore(db)
 		s.emailProviderStore = store.NewEmailProviderStore(db)
+		s.revocationStore = store.NewRevocationStore(db)
 	}
 
 	// Initialize email sender from providers or default to console
@@ -132,6 +133,7 @@ type Server struct {
 	emailVerificationStore   *store.EmailVerificationStore
 	settingsStore            *store.SystemSettingsStore
 	emailProviderStore       *store.EmailProviderStore
+	revocationStore          *store.RevocationStore
 	emailSender              email.Sender
 
 	// centralized DB handles (lazy-initialized)
@@ -329,6 +331,7 @@ func (s *Server) initializeDatabases() error {
 		s.emailVerificationStore = store.NewEmailVerificationStore(db)
 		s.settingsStore = store.NewSystemSettingsStore(db)
 		s.emailProviderStore = store.NewEmailProviderStore(db)
+		s.revocationStore = store.NewRevocationStore(db)
 	}
 
 	// Initialize email sender from providers

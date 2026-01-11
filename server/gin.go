@@ -34,6 +34,13 @@ func NewGinEngine(s *Server) *gin.Engine {
 	r.POST("/oauth/introspect", ginFrom(s.HandleIntrospectionRequest))
 	r.POST("/oauth/revoke", ginFrom(s.HandleRevocationRequest))
 
+	// Token Revocation List (public endpoint for clients to sync revocation list)
+	r.GET("/oauth/revocationlist", s.HandleGetRevocationListGin)
+	// Token revocation check (public endpoint)
+	r.GET("/oauth/revoke/check", s.HandleCheckTokenRevocationGin)
+	// Manual token revocation via Gin handler
+	r.POST("/oauth/revoke/token", s.HandleRevokeTokenGin)
+
 	// OIDC endpoints
 	if s.Config != nil && s.Config.OIDCEnabled {
 		r.GET("/.well-known/openid-configuration", ginFrom(s.HandleOIDCDiscovery))
@@ -108,6 +115,10 @@ func NewGinEngine(s *Server) *gin.Engine {
 	adminGroup.GET("/admin/users/:id/bans", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.READ), s.HandleListAccountBansGin)
 	adminGroup.GET("/admin/users/:id/login-history", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.READ), s.HandleListLoginHistoryGin)
 	adminGroup.GET("/admin/users/:id/link-history", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:*:ACCOUNT", permission.READ), s.HandleListLinkHistoryGin)
+	// Admin: user token revocation
+	adminGroup.POST("/admin/namespaces/:ns/revoke/users/:userId", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER:{userId}", permission.UPDATE), s.HandleRevokeUserTokensGin)
+	adminGroup.DELETE("/admin/namespaces/:ns/revoke/users/:userId", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountAdmin, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER:{userId}", permission.DELETE), s.HandleRemoveUserRevocationGin)
+	adminGroup.GET("/admin/namespaces/:ns/revoke/users/:userId/status", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeAccountRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER:{userId}", permission.READ), s.HandleCheckUserRevocationGin)
 	// Admin: dashboard stats (namespace-scoped)
 	adminGroup.GET("/admin/namespaces/:ns/stats/signups", s.RequireScopeAndPermission(ScopeRequirement{Required: []string{ScopeUserRead, ScopeAdmin}}, "ADMIN:NAMESPACE:{ns}:USER", permission.READ), s.HandleGetSignupStatsGin)
 	// Admin: user permissions
